@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Church Translation System</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            width: 100%;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 50px;
+        }
+
+        h1 {
+            font-size: 3rem;
+            margin-bottom: 15px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .subtitle {
+            font-size: 1.2rem;
+            opacity: 0.9;
+        }
+
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 25px;
+            margin-top: 40px;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 35px 25px;
+            text-align: center;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            text-decoration: none;
+            color: #333;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        }
+
+        .card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .card-icon {
+            font-size: 4rem;
+            margin-bottom: 15px;
+        }
+
+        .card-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+            color: #333;
+        }
+
+        .card-description {
+            font-size: 0.95rem;
+            color: #666;
+            line-height: 1.5;
+        }
+
+        .status-section {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            padding: 30px;
+            margin-top: 50px;
+            backdrop-filter: blur(10px);
+        }
+
+        .status-section h2 {
+            font-size: 1.8rem;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+
+        .status-item {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .status-label {
+            font-size: 0.9rem;
+            opacity: 0.8;
+            margin-bottom: 10px;
+        }
+
+        .status-value {
+            font-size: 1.8rem;
+            font-weight: 700;
+        }
+
+        .status-dot {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .status-dot.active {
+            background: #4CAF50;
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.inactive {
+            background: #f44336;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        footer {
+            text-align: center;
+            margin-top: 50px;
+            opacity: 0.8;
+            font-size: 0.9rem;
+        }
+
+        .info-box {
+            background: rgba(255, 255, 255, 0.15);
+            border-left: 4px solid rgba(255, 255, 255, 0.5);
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 30px;
+        }
+
+        .info-box h3 {
+            font-size: 1.2rem;
+            margin-bottom: 10px;
+        }
+
+        .info-box p {
+            line-height: 1.6;
+            opacity: 0.9;
+        }
+
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 2rem;
+            }
+
+            .cards-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>⛪ Church Translation System</h1>
+            <p class="subtitle">Real-Time Bilingual Translation (English ⇄ Spanish)</p>
+        </header>
+
+        <div class="cards-grid">
+            <a href="/projector" class="card">
+                <div class="card-icon">🎥</div>
+                <div class="card-title">Projector Display</div>
+                <div class="card-description">
+                    Large dual-language display for projection screens. Shows both English and Spanish translations side-by-side.
+                </div>
+            </a>
+
+            <a href="/personal" class="card">
+                <div class="card-icon">📱</div>
+                <div class="card-title">Personal Device</div>
+                <div class="card-description">
+                    Mobile-friendly view for personal phones or tablets. Choose your preferred language for focused viewing.
+                </div>
+            </a>
+
+            <a href="/streamer" class="card">
+                <div class="card-icon">🎤</div>
+                <div class="card-title">Audio Streamer</div>
+                <div class="card-description">
+                    Stream audio from a browser to start new translation sessions for breakout rooms or secondary meetings.
+                </div>
+            </a>
+        </div>
+
+        <div class="status-section">
+            <h2>System Status</h2>
+            <div class="status-grid">
+                <div class="status-item">
+                    <div class="status-label">Server Status</div>
+                    <div class="status-value">
+                        <span class="status-dot active"></span>
+                        <span id="server-status">Online</span>
+                    </div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">Active Sessions</div>
+                    <div class="status-value" id="active-sessions">-</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">Testing Mode</div>
+                    <div class="status-value" id="testing-mode">-</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="info-box">
+            <h3>📖 Quick Start Guide</h3>
+            <p>
+                <strong>1. Main Service:</strong> The "main" session auto-starts when the server launches.<br>
+                <strong>2. Connect Displays:</strong> Open projector or personal views on any device on the network.<br>
+                <strong>3. Secondary Meetings:</strong> Use the Audio Streamer to create new sessions (e.g., youth, bible_study).<br>
+                <strong>4. Join Sessions:</strong> Each client can select which session to listen to.
+            </p>
+        </div>
+
+        <footer>
+            <p>Real-Time Bilingual Church Translation System</p>
+            <p>Server running on: <strong id="server-url">-</strong></p>
+        </footer>
+    </div>
+
+    <script>
+        // ====================================================================
+        // System Status Check
+        // ====================================================================
+        async function checkSystemStatus() {
+            try {
+                const response = await fetch('/health');
+                const data = await response.json();
+
+                document.getElementById('server-status').textContent = data.status === 'healthy' ? 'Online' : 'Offline';
+                document.getElementById('active-sessions').textContent = data.active_sessions || 0;
+                document.getElementById('testing-mode').textContent = data.testing_mode ? 'Yes' : 'No';
+
+            } catch (error) {
+                console.error('Error checking system status:', error);
+                document.getElementById('server-status').textContent = 'Error';
+                document.querySelector('.status-dot').classList.remove('active');
+                document.querySelector('.status-dot').classList.add('inactive');
+            }
+        }
+
+        // Display current server URL
+        const serverUrl = window.location.origin;
+        document.getElementById('server-url').textContent = serverUrl;
+
+        // Check status on load and periodically
+        checkSystemStatus();
+        setInterval(checkSystemStatus, 5000);
+    </script>
+</body>
+</html>

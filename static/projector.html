@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Church Translation - Projector Display</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Session Selection Screen */
+        #session-selection {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 40px;
+        }
+
+        #session-selection h1 {
+            font-size: 3.5rem;
+            margin-bottom: 20px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        #session-selection p {
+            font-size: 1.5rem;
+            margin-bottom: 40px;
+            opacity: 0.9;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .input-group label {
+            font-size: 1.3rem;
+            font-weight: 600;
+        }
+
+        .input-group select,
+        .input-group input {
+            padding: 15px 30px;
+            font-size: 1.5rem;
+            border: none;
+            border-radius: 10px;
+            background: white;
+            color: #333;
+            min-width: 300px;
+            text-align: center;
+        }
+
+        .btn {
+            padding: 15px 50px;
+            font-size: 1.5rem;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            margin-top: 20px;
+        }
+
+        .btn-primary {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #45a049;
+            transform: scale(1.05);
+        }
+
+        .btn-secondary {
+            background: #ff9800;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #e68900;
+        }
+
+        /* Display Screen */
+        #display-screen {
+            display: none;
+            height: 100vh;
+            flex-direction: column;
+        }
+
+        #display-screen.active {
+            display: flex;
+        }
+
+        /* Header */
+        .header {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 15px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        .header h1 {
+            font-size: 2rem;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .session-badge {
+            background: #4CAF50;
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-size: 1rem;
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 1.2rem;
+        }
+
+        .status-dot {
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            background: #4CAF50;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .status-dot.disconnected {
+            background: #f44336;
+            animation: none;
+        }
+
+        /* Translation Display */
+        .translation-container {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            padding: 30px;
+            overflow: hidden;
+        }
+
+        .language-column {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 30px;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .language-column.active-speaker {
+            border-color: #4CAF50;
+            box-shadow: 0 0 30px rgba(76, 175, 80, 0.5);
+        }
+
+        .language-header {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 3px solid rgba(255, 255, 255, 0.3);
+            text-align: center;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        .text-display {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .text-item {
+            font-size: 2.5rem;
+            line-height: 1.5;
+            padding: 20px;
+            border-radius: 10px;
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        .text-item.final {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .text-item.interim {
+            opacity: 0.7;
+            font-style: italic;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Scrollbar styling */
+        .text-display::-webkit-scrollbar {
+            width: 10px;
+        }
+
+        .text-display::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 5px;
+        }
+
+        .text-display::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 5px;
+        }
+
+        .text-display::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.5);
+        }
+
+        /* Footer */
+        .footer {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 10px 30px;
+            text-align: center;
+            font-size: 1rem;
+            opacity: 0.8;
+        }
+
+        /* Error/Info Messages */
+        .message {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 20px 30px;
+            border-radius: 10px;
+            font-size: 1.2rem;
+            z-index: 1000;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        .message.error {
+            background: #f44336;
+        }
+
+        .message.success {
+            background: #4CAF50;
+        }
+
+        .message.info {
+            background: #2196F3;
+        }
+
+        /* Custom Session Input */
+        .custom-session {
+            display: none;
+            margin-top: 10px;
+        }
+
+        .custom-session.show {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <!-- Session Selection Screen -->
+    <div id="session-selection">
+        <h1>🎥 Projector Display</h1>
+        <p>Select the session to display</p>
+        
+        <div class="input-group">
+            <label for="session-select">Session:</label>
+            <select id="session-select">
+                <option value="main">Main Service</option>
+                <option value="youth">Youth Meeting</option>
+                <option value="bible_study">Bible Study</option>
+                <option value="custom">Custom Session...</option>
+            </select>
+            
+            <div id="custom-session-input" class="custom-session">
+                <input type="text" id="custom-session-id" placeholder="Enter custom session ID">
+            </div>
+            
+            <button class="btn btn-primary" onclick="connectToSession()">Connect</button>
+        </div>
+    </div>
+
+    <!-- Main Display Screen -->
+    <div id="display-screen">
+        <div class="header">
+            <h1>
+                Church Translation
+                <span class="session-badge" id="session-name">Main Service</span>
+            </h1>
+            <div class="status">
+                <div class="status-dot" id="status-dot"></div>
+                <span id="status-text">Connecting...</span>
+            </div>
+        </div>
+
+        <div class="translation-container">
+            <!-- English Column -->
+            <div class="language-column" id="english-column">
+                <div class="language-header">🇺🇸 English</div>
+                <div class="text-display" id="english-display">
+                    <div class="text-item interim">Waiting for translation...</div>
+                </div>
+            </div>
+
+            <!-- Spanish Column -->
+            <div class="language-column" id="spanish-column">
+                <div class="language-header">🇪🇸 Español</div>
+                <div class="text-display" id="spanish-display">
+                    <div class="text-item interim">Esperando traducción...</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <span id="footer-text">Real-Time Bilingual Translation System</span>
+        </div>
+    </div>
+
+    <script>
+        // ====================================================================
+        // Global State
+        // ====================================================================
+        let socket = null;
+        let currentSessionId = null;
+        let isConnected = false;
+
+        // Translation history
+        let englishTexts = [];
+        let spanishTexts = [];
+        const MAX_HISTORY = 10;
+
+        // ====================================================================
+        // UI Elements
+        // ====================================================================
+        const sessionSelection = document.getElementById('session-selection');
+        const displayScreen = document.getElementById('display-screen');
+        const sessionSelect = document.getElementById('session-select');
+        const customSessionInput = document.getElementById('custom-session-input');
+        const customSessionId = document.getElementById('custom-session-id');
+        const sessionNameBadge = document.getElementById('session-name');
+        const statusDot = document.getElementById('status-dot');
+        const statusText = document.getElementById('status-text');
+        const englishColumn = document.getElementById('english-column');
+        const spanishColumn = document.getElementById('spanish-column');
+        const englishDisplay = document.getElementById('english-display');
+        const spanishDisplay = document.getElementById('spanish-display');
+
+        // ====================================================================
+        // Session Selection
+        // ====================================================================
+        sessionSelect.addEventListener('change', (e) => {
+            if (e.target.value === 'custom') {
+                customSessionInput.classList.add('show');
+                customSessionId.focus();
+            } else {
+                customSessionInput.classList.remove('show');
+            }
+        });
+
+        function connectToSession() {
+            let sessionId = sessionSelect.value;
+            
+            if (sessionId === 'custom') {
+                sessionId = customSessionId.value.trim();
+                if (!sessionId) {
+                    showMessage('Please enter a custom session ID', 'error');
+                    return;
+                }
+            }
+
+            currentSessionId = sessionId;
+            sessionNameBadge.textContent = formatSessionName(sessionId);
+            
+            // Hide selection, show display
+            sessionSelection.style.display = 'none';
+            displayScreen.classList.add('active');
+            
+            // Initialize socket connection
+            initializeSocket();
+        }
+
+        function formatSessionName(sessionId) {
+            const names = {
+                'main': 'Main Service',
+                'youth': 'Youth Meeting',
+                'bible_study': 'Bible Study'
+            };
+            return names[sessionId] || sessionId.replace(/_/g, ' ').toUpperCase();
+        }
+
+        // ====================================================================
+        // Socket.IO Connection
+        // ====================================================================
+        function initializeSocket() {
+            console.log('Connecting to server...');
+            updateStatus('Connecting...', false);
+
+            socket = io({
+                transports: ['websocket', 'polling'],
+                reconnection: true,
+                reconnectionDelay: 1000,
+                reconnectionAttempts: 10
+            });
+
+            // Connection established
+            socket.on('connect', () => {
+                console.log('Connected to server');
+                isConnected = true;
+                updateStatus('Connected', true);
+                
+                // Join the session room
+                socket.emit('join_session', {
+                    session_id: currentSessionId
+                });
+            });
+
+            // Join response
+            socket.on('join_response', (data) => {
+                console.log('Join response:', data);
+                if (data.success) {
+                    showMessage(`Joined session: ${currentSessionId}`, 'success');
+                    updateStatus('Active', true);
+                } else {
+                    showMessage('Failed to join session', 'error');
+                }
+            });
+
+            // Translation updates
+            socket.on('translation_update', (data) => {
+                console.log('Translation:', data);
+                handleTranslationUpdate(data);
+            });
+
+            // Errors
+            socket.on('translation_error', (data) => {
+                console.error('Translation error:', data);
+                showMessage(`Error: ${data.error}`, 'error');
+            });
+
+            // Disconnection
+            socket.on('disconnect', (reason) => {
+                console.log('Disconnected:', reason);
+                isConnected = false;
+                updateStatus('Disconnected', false);
+                showMessage('Connection lost. Reconnecting...', 'error');
+            });
+
+            // Reconnection
+            socket.on('reconnect', (attemptNumber) => {
+                console.log('Reconnected after', attemptNumber, 'attempts');
+                isConnected = true;
+                updateStatus('Reconnected', true);
+                showMessage('Reconnected successfully', 'success');
+                
+                // Rejoin session
+                socket.emit('join_session', {
+                    session_id: currentSessionId
+                });
+            });
+        }
+
+        // ====================================================================
+        // Translation Handling
+        // ====================================================================
+        function handleTranslationUpdate(data) {
+            // Validate session
+            if (data.session_id !== currentSessionId) {
+                return;
+            }
+
+            const originalLang = data.original_lang;
+            const originalText = data.original_text;
+            const translatedText = data.translated_text;
+            const isFinal = data.is_final;
+
+            // Highlight active speaker column
+            if (originalLang === 'en') {
+                englishColumn.classList.add('active-speaker');
+                spanishColumn.classList.remove('active-speaker');
+            } else {
+                spanishColumn.classList.add('active-speaker');
+                englishColumn.classList.remove('active-speaker');
+            }
+
+            // Update displays
+            if (originalLang === 'en') {
+                updateDisplay(englishDisplay, originalText, isFinal, englishTexts);
+                updateDisplay(spanishDisplay, translatedText, isFinal, spanishTexts);
+            } else {
+                updateDisplay(spanishDisplay, originalText, isFinal, spanishTexts);
+                updateDisplay(englishDisplay, translatedText, isFinal, englishTexts);
+            }
+        }
+
+        function updateDisplay(displayElement, text, isFinal, historyArray) {
+            if (!text) return;
+
+            if (isFinal) {
+                // Add to history
+                historyArray.push(text);
+                if (historyArray.length > MAX_HISTORY) {
+                    historyArray.shift();
+                }
+
+                // Clear display and show all history
+                displayElement.innerHTML = '';
+                historyArray.forEach((historyText, index) => {
+                    const textItem = document.createElement('div');
+                    textItem.className = 'text-item final';
+                    textItem.textContent = historyText;
+                    
+                    // Fade older items
+                    const age = historyArray.length - index - 1;
+                    textItem.style.opacity = Math.max(0.3, 1 - (age * 0.1));
+                    
+                    displayElement.appendChild(textItem);
+                });
+
+                // Scroll to bottom
+                displayElement.scrollTop = displayElement.scrollHeight;
+            } else {
+                // Update interim text (last item)
+                const existingInterim = displayElement.querySelector('.interim');
+                if (existingInterim) {
+                    existingInterim.textContent = text;
+                } else {
+                    const textItem = document.createElement('div');
+                    textItem.className = 'text-item interim';
+                    textItem.textContent = text;
+                    displayElement.appendChild(textItem);
+                }
+            }
+        }
+
+        // ====================================================================
+        // UI Updates
+        // ====================================================================
+        function updateStatus(text, connected) {
+            statusText.textContent = text;
+            if (connected) {
+                statusDot.classList.remove('disconnected');
+            } else {
+                statusDot.classList.add('disconnected');
+            }
+        }
+
+        function showMessage(text, type = 'info') {
+            const message = document.createElement('div');
+            message.className = `message ${type}`;
+            message.textContent = text;
+            document.body.appendChild(message);
+
+            setTimeout(() => {
+                message.style.opacity = '0';
+                setTimeout(() => message.remove(), 300);
+            }, 3000);
+        }
+
+        // ====================================================================
+        // Keyboard Shortcuts
+        // ====================================================================
+        document.addEventListener('keydown', (e) => {
+            // F11: Toggle fullscreen
+            if (e.key === 'F11') {
+                e.preventDefault();
+                if (!document.fullscreenElement) {
+                    document.documentElement.requestFullscreen();
+                } else {
+                    document.exitFullscreen();
+                }
+            }
+            
+            // Escape: Exit to session selection
+            if (e.key === 'Escape' && document.fullscreenElement) {
+                document.exitFullscreen();
+            }
+        });
+
+        // ====================================================================
+        // Initialize
+        // ====================================================================
+        console.log('Projector Display Client initialized');
+    </script>
+</body>
+</html>

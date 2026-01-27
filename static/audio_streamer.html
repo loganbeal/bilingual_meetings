@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Church Translation - Audio Streamer</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 25px;
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            color: #333;
+        }
+
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 10px;
+            text-align: center;
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        p.subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 0.95rem;
+        }
+
+        .input-group {
+            margin-bottom: 25px;
+        }
+
+        .input-group label {
+            display: block;
+            font-size: 0.95rem;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #555;
+        }
+
+        .input-group input,
+        .input-group select {
+            width: 100%;
+            padding: 12px 15px;
+            font-size: 1rem;
+            border: 2px solid #ddd;
+            border-radius: 10px;
+            background: white;
+            color: #333;
+            transition: border-color 0.3s ease;
+        }
+
+        .input-group input:focus,
+        .input-group select:focus {
+            outline: none;
+            border-color: #f5576c;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+        }
+
+        .checkbox-group label {
+            cursor: pointer;
+            margin: 0;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 15px;
+            font-size: 1.1rem;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            margin-top: 10px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(245, 87, 108, 0.4);
+        }
+
+        .btn-success {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .btn-danger {
+            background: #f44336;
+            color: white;
+        }
+
+        .btn-danger:hover:not(:disabled) {
+            background: #d32f2f;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .status-panel {
+            background: #f5f5f5;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 25px;
+        }
+
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .status-item:last-child {
+            border-bottom: none;
+        }
+
+        .status-label {
+            font-weight: 600;
+            color: #666;
+        }
+
+        .status-value {
+            color: #333;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #ccc;
+        }
+
+        .status-dot.active {
+            background: #4CAF50;
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.error {
+            background: #f44336;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .audio-visualizer {
+            height: 60px;
+            background: #333;
+            border-radius: 10px;
+            margin-top: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 3px;
+            padding: 10px;
+            overflow: hidden;
+        }
+
+        .visualizer-bar {
+            width: 4px;
+            background: linear-gradient(to top, #f5576c, #f093fb);
+            border-radius: 2px;
+            transition: height 0.1s ease;
+        }
+
+        .alert {
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-size: 0.9rem;
+        }
+
+        .alert-info {
+            background: #e3f2fd;
+            color: #1976d2;
+            border-left: 4px solid #1976d2;
+        }
+
+        .alert-warning {
+            background: #fff3e0;
+            color: #f57c00;
+            border-left: 4px solid #f57c00;
+        }
+
+        .alert-error {
+            background: #ffebee;
+            color: #c62828;
+            border-left: 4px solid #c62828;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+            border: 2px solid #f0f0f0;
+        }
+
+        .stat-value {
+            font-size: 1.8rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .stat-label {
+            font-size: 0.85rem;
+            color: #666;
+            margin-top: 5px;
+        }
+
+        @media (max-width: 480px) {
+            .container {
+                padding: 25px;
+            }
+
+            h1 {
+                font-size: 1.5rem;
+            }
+
+            .stats {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎤 Audio Streamer</h1>
+        <p class="subtitle">Stream audio from your browser to a translation session</p>
+
+        <div id="setup-panel">
+            <div class="alert alert-info">
+                This tool allows you to stream audio from your device's microphone to start a new translation session. Perfect for breakout rooms or secondary meetings.
+            </div>
+
+            <div class="input-group">
+                <label for="session-id">Session ID:</label>
+                <input type="text" id="session-id" placeholder="e.g., youth, bible_study" value="youth">
+            </div>
+
+            <div class="input-group">
+                <label for="audio-source">Audio Source:</label>
+                <select id="audio-source">
+                    <option value="">Default Microphone</option>
+                </select>
+            </div>
+
+            <div class="checkbox-group">
+                <input type="checkbox" id="testing-mode">
+                <label for="testing-mode">Testing Mode (no Soniox, dummy data)</label>
+            </div>
+
+            <button class="btn btn-primary" id="create-session-btn" onclick="createSession()">
+                Create Session
+            </button>
+        </div>
+
+        <div id="streaming-panel" style="display: none;">
+            <div class="alert alert-info">
+                Session created! Click "Start Streaming" to begin sending audio.
+            </div>
+
+            <button class="btn btn-success" id="start-streaming-btn" onclick="startStreaming()">
+                Start Streaming
+            </button>
+
+            <button class="btn btn-danger" id="stop-streaming-btn" onclick="stopStreaming()" style="display: none;">
+                Stop Streaming
+            </button>
+
+            <div class="audio-visualizer" id="visualizer">
+                <!-- Visualizer bars will be generated dynamically -->
+            </div>
+
+            <div class="status-panel">
+                <div class="status-item">
+                    <span class="status-label">Connection:</span>
+                    <span class="status-value">
+                        <div class="status-dot" id="connection-status"></div>
+                        <span id="connection-text">Disconnected</span>
+                    </span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Session:</span>
+                    <span class="status-value" id="session-name">-</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Streaming:</span>
+                    <span class="status-value">
+                        <div class="status-dot" id="streaming-status"></div>
+                        <span id="streaming-text">Stopped</span>
+                    </span>
+                </div>
+            </div>
+
+            <div class="stats">
+                <div class="stat-card">
+                    <div class="stat-value" id="data-sent">0</div>
+                    <div class="stat-label">KB Sent</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="duration">00:00</div>
+                    <div class="stat-label">Duration</div>
+                </div>
+            </div>
+
+            <button class="btn btn-danger" onclick="stopSession()" style="margin-top: 20px;">
+                End Session
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // ====================================================================
+        // Global State
+        // ====================================================================
+        let socket = null;
+        let currentSessionId = null;
+        let isConnected = false;
+        let isStreaming = false;
+
+        let mediaStream = null;
+        let audioContext = null;
+        let mediaStreamSource = null;
+        let scriptProcessor = null;
+
+        let bytesSent = 0;
+        let streamStartTime = null;
+        let durationInterval = null;
+
+        // ====================================================================
+        // UI Elements
+        // ====================================================================
+        const setupPanel = document.getElementById('setup-panel');
+        const streamingPanel = document.getElementById('streaming-panel');
+        const sessionIdInput = document.getElementById('session-id');
+        const audioSourceSelect = document.getElementById('audio-source');
+        const testingModeCheckbox = document.getElementById('testing-mode');
+        const createSessionBtn = document.getElementById('create-session-btn');
+        const startStreamingBtn = document.getElementById('start-streaming-btn');
+        const stopStreamingBtn = document.getElementById('stop-streaming-btn');
+        const connectionStatus = document.getElementById('connection-status');
+        const connectionText = document.getElementById('connection-text');
+        const sessionName = document.getElementById('session-name');
+        const streamingStatus = document.getElementById('streaming-status');
+        const streamingText = document.getElementById('streaming-text');
+        const dataSent = document.getElementById('data-sent');
+        const durationDisplay = document.getElementById('duration');
+        const visualizer = document.getElementById('visualizer');
+
+        // ====================================================================
+        // Initialization
+        // ====================================================================
+        async function initAudioDevices() {
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const audioInputs = devices.filter(device => device.kind === 'audioinput');
+
+                audioInputs.forEach(device => {
+                    const option = document.createElement('option');
+                    option.value = device.deviceId;
+                    option.textContent = device.label || `Microphone ${audioSourceSelect.options.length}`;
+                    audioSourceSelect.appendChild(option);
+                });
+
+                console.log(`Found ${audioInputs.length} audio input devices`);
+            } catch (error) {
+                console.error('Error enumerating devices:', error);
+                showAlert('Could not access audio devices', 'error');
+            }
+        }
+
+        // Initialize visualizer bars
+        function initVisualizer() {
+            visualizer.innerHTML = '';
+            for (let i = 0; i < 30; i++) {
+                const bar = document.createElement('div');
+                bar.className = 'visualizer-bar';
+                bar.style.height = '10px';
+                visualizer.appendChild(bar);
+            }
+        }
+
+        // ====================================================================
+        // Session Management
+        // ====================================================================
+        async function createSession() {
+            const sessionId = sessionIdInput.value.trim();
+            if (!sessionId) {
+                showAlert('Please enter a session ID', 'error');
+                return;
+            }
+
+            if (!/^[a-zA-Z0-9_]+$/.test(sessionId)) {
+                showAlert('Session ID can only contain letters, numbers, and underscores', 'error');
+                return;
+            }
+
+            createSessionBtn.disabled = true;
+            createSessionBtn.textContent = 'Creating...';
+
+            try {
+                // Connect to server
+                await initializeSocket();
+
+                // Create session on server
+                const testingMode = testingModeCheckbox.checked;
+                socket.emit('start_session', {
+                    session_id: sessionId,
+                    use_local_audio: false,
+                    testing_mode: testingMode
+                });
+
+                // Wait for response
+                socket.once('start_session_response', (data) => {
+                    if (data.success) {
+                        currentSessionId = sessionId;
+                        sessionName.textContent = sessionId;
+                        
+                        // Switch to streaming panel
+                        setupPanel.style.display = 'none';
+                        streamingPanel.style.display = 'block';
+                        
+                        showAlert('Session created successfully!', 'info');
+                    } else {
+                        showAlert('Failed to create session: ' + data.message, 'error');
+                        createSessionBtn.disabled = false;
+                        createSessionBtn.textContent = 'Create Session';
+                    }
+                });
+
+            } catch (error) {
+                console.error('Error creating session:', error);
+                showAlert('Connection error: ' + error.message, 'error');
+                createSessionBtn.disabled = false;
+                createSessionBtn.textContent = 'Create Session';
+            }
+        }
+
+        async function startStreaming() {
+            try {
+                startStreamingBtn.disabled = true;
+
+                // Request microphone access
+                const deviceId = audioSourceSelect.value;
+                const constraints = {
+                    audio: deviceId ? { deviceId: { exact: deviceId } } : true,
+                    video: false
+                };
+
+                mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+                console.log('Microphone access granted');
+
+                // Setup audio processing
+                audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                    sampleRate: 16000  // Soniox requires 16kHz
+                });
+
+                mediaStreamSource = audioContext.createMediaStreamSource(mediaStream);
+
+                // Create script processor for audio chunks
+                const bufferSize = 4096;
+                scriptProcessor = audioContext.createScriptProcessor(bufferSize, 1, 1);
+
+                scriptProcessor.onaudioprocess = (event) => {
+                    if (!isStreaming) return;
+
+                    const inputData = event.inputBuffer.getChannelData(0);
+                    
+                    // Convert Float32Array to Int16Array (PCM)
+                    const pcmData = new Int16Array(inputData.length);
+                    for (let i = 0; i < inputData.length; i++) {
+                        const s = Math.max(-1, Math.min(1, inputData[i]));
+                        pcmData[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                    }
+
+                    // Send to server
+                    if (socket && socket.connected) {
+                        socket.emit('stream_audio', {
+                            session_id: currentSessionId,
+                            audio: Array.from(new Uint8Array(pcmData.buffer))
+                        });
+
+                        bytesSent += pcmData.buffer.byteLength;
+                        updateStats();
+                    }
+
+                    // Update visualizer
+                    updateVisualizer(inputData);
+                };
+
+                mediaStreamSource.connect(scriptProcessor);
+                scriptProcessor.connect(audioContext.destination);
+
+                isStreaming = true;
+                streamingStatus.classList.add('active');
+                streamingText.textContent = 'Active';
+                startStreamingBtn.style.display = 'none';
+                stopStreamingBtn.style.display = 'block';
+
+                // Start duration counter
+                streamStartTime = Date.now();
+                durationInterval = setInterval(updateDuration, 1000);
+
+                showAlert('Streaming started', 'info');
+
+            } catch (error) {
+                console.error('Error starting streaming:', error);
+                showAlert('Microphone access denied or error: ' + error.message, 'error');
+                startStreamingBtn.disabled = false;
+            }
+        }
+
+        function stopStreaming() {
+            isStreaming = false;
+
+            if (scriptProcessor) {
+                scriptProcessor.disconnect();
+                scriptProcessor = null;
+            }
+
+            if (mediaStreamSource) {
+                mediaStreamSource.disconnect();
+                mediaStreamSource = null;
+            }
+
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => track.stop());
+                mediaStream = null;
+            }
+
+            if (audioContext) {
+                audioContext.close();
+                audioContext = null;
+            }
+
+            if (durationInterval) {
+                clearInterval(durationInterval);
+                durationInterval = null;
+            }
+
+            streamingStatus.classList.remove('active');
+            streamingText.textContent = 'Stopped';
+            startStreamingBtn.style.display = 'block';
+            stopStreamingBtn.style.display = 'none';
+            startStreamingBtn.disabled = false;
+
+            showAlert('Streaming stopped', 'info');
+        }
+
+        function stopSession() {
+            stopStreaming();
+
+            if (socket) {
+                socket.emit('stop_session', {
+                    session_id: currentSessionId
+                });
+                socket.disconnect();
+            }
+
+            // Reset UI
+            setupPanel.style.display = 'block';
+            streamingPanel.style.display = 'none';
+            createSessionBtn.disabled = false;
+            createSessionBtn.textContent = 'Create Session';
+            bytesSent = 0;
+            updateStats();
+            durationDisplay.textContent = '00:00';
+
+            showAlert('Session ended', 'info');
+        }
+
+        // ====================================================================
+        // Socket.IO
+        // ====================================================================
+        function initializeSocket() {
+            return new Promise((resolve, reject) => {
+                console.log('Connecting to server...');
+                
+                socket = io({
+                    transports: ['websocket', 'polling'],
+                    reconnection: true,
+                    reconnectionDelay: 1000,
+                    reconnectionAttempts: 5
+                });
+
+                socket.on('connect', () => {
+                    console.log('Connected to server');
+                    isConnected = true;
+                    connectionStatus.classList.add('active');
+                    connectionText.textContent = 'Connected';
+                    resolve();
+                });
+
+                socket.on('disconnect', () => {
+                    console.log('Disconnected from server');
+                    isConnected = false;
+                    connectionStatus.classList.remove('active');
+                    connectionStatus.classList.add('error');
+                    connectionText.textContent = 'Disconnected';
+                });
+
+                socket.on('connect_error', (error) => {
+                    console.error('Connection error:', error);
+                    reject(error);
+                });
+            });
+        }
+
+        // ====================================================================
+        // Visualizer & Stats
+        // ====================================================================
+        function updateVisualizer(audioData) {
+            const bars = visualizer.querySelectorAll('.visualizer-bar');
+            const sampleSize = Math.floor(audioData.length / bars.length);
+
+            bars.forEach((bar, index) => {
+                const start = index * sampleSize;
+                const end = start + sampleSize;
+                const slice = audioData.slice(start, end);
+                
+                // Calculate RMS (Root Mean Square) for this segment
+                let sum = 0;
+                for (let i = 0; i < slice.length; i++) {
+                    sum += slice[i] * slice[i];
+                }
+                const rms = Math.sqrt(sum / slice.length);
+                
+                // Convert to height (0-50px)
+                const height = Math.min(50, rms * 200);
+                bar.style.height = height + 'px';
+            });
+        }
+
+        function updateStats() {
+            const kb = (bytesSent / 1024).toFixed(2);
+            dataSent.textContent = kb;
+        }
+
+        function updateDuration() {
+            if (!streamStartTime) return;
+
+            const elapsed = Math.floor((Date.now() - streamStartTime) / 1000);
+            const minutes = Math.floor(elapsed / 60);
+            const seconds = elapsed % 60;
+            durationDisplay.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+        }
+
+        // ====================================================================
+        // Utilities
+        // ====================================================================
+        function showAlert(message, type = 'info') {
+            const alert = document.createElement('div');
+            alert.className = `alert alert-${type}`;
+            alert.textContent = message;
+            
+            const container = document.querySelector('.container');
+            container.insertBefore(alert, container.firstChild);
+
+            setTimeout(() => {
+                alert.style.opacity = '0';
+                setTimeout(() => alert.remove(), 300);
+            }, 4000);
+        }
+
+        // ====================================================================
+        // Initialize
+        // ====================================================================
+        document.addEventListener('DOMContentLoaded', () => {
+            initAudioDevices();
+            initVisualizer();
+            console.log('Audio Streamer initialized');
+        });
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            stopStreaming();
+            if (socket) {
+                socket.disconnect();
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,865 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Church Translation - Personal Device</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* Session Selection Screen */
+        #session-selection {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        #session-selection h1 {
+            font-size: 2rem;
+            margin-bottom: 10px;
+            text-align: center;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        #session-selection p {
+            font-size: 1rem;
+            margin-bottom: 30px;
+            opacity: 0.9;
+            text-align: center;
+        }
+
+        .selection-container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 30px;
+            max-width: 400px;
+            width: 100%;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            color: #333;
+        }
+
+        .input-group {
+            margin-bottom: 25px;
+        }
+
+        .input-group label {
+            display: block;
+            font-size: 0.95rem;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #555;
+        }
+
+        .input-group select,
+        .input-group input {
+            width: 100%;
+            padding: 12px 15px;
+            font-size: 1rem;
+            border: 2px solid #ddd;
+            border-radius: 10px;
+            background: white;
+            color: #333;
+            transition: border-color 0.3s ease;
+        }
+
+        .input-group select:focus,
+        .input-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .custom-session {
+            display: none;
+            margin-top: 10px;
+        }
+
+        .custom-session.show {
+            display: block;
+        }
+
+        .language-selector {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .language-option {
+            padding: 15px;
+            border: 2px solid #ddd;
+            border-radius: 10px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 600;
+            background: white;
+        }
+
+        .language-option:hover {
+            border-color: #667eea;
+            transform: scale(1.05);
+        }
+
+        .language-option.selected {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 15px;
+            font-size: 1.1rem;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            margin-top: 10px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* Display Screen */
+        #display-screen {
+            display: none;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        #display-screen.active {
+            display: flex;
+        }
+
+        /* Header */
+        .header {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 15px 20px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+        }
+
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .header h1 {
+            font-size: 1.3rem;
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.9rem;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #4CAF50;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .status-dot.disconnected {
+            background: #f44336;
+            animation: none;
+        }
+
+        .session-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.85rem;
+            opacity: 0.9;
+        }
+
+        .session-badge {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 5px 12px;
+            border-radius: 15px;
+        }
+
+        .language-badge {
+            background: #4CAF50;
+            padding: 5px 12px;
+            border-radius: 15px;
+            font-weight: 600;
+        }
+
+        /* Translation Display */
+        .translation-container {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .translation-item {
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 15px;
+            animation: slideIn 0.3s ease-out;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .translation-item.interim {
+            opacity: 0.7;
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            border-style: dashed;
+        }
+
+        .translation-text {
+            font-size: 1.3rem;
+            line-height: 1.6;
+            margin-bottom: 10px;
+        }
+
+        .translation-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.8rem;
+            opacity: 0.7;
+        }
+
+        .original-indicator {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 3px 10px;
+            border-radius: 10px;
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            opacity: 0.6;
+        }
+
+        .empty-state-icon {
+            font-size: 3rem;
+            margin-bottom: 10px;
+        }
+
+        /* Settings Button */
+        .settings-btn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            color: white;
+            font-size: 1.5rem;
+            cursor: pointer;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s ease;
+            z-index: 1000;
+        }
+
+        .settings-btn:hover {
+            transform: scale(1.1) rotate(90deg);
+        }
+
+        /* Message Toast */
+        .toast {
+            position: fixed;
+            top: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 15px 25px;
+            border-radius: 10px;
+            font-size: 0.95rem;
+            z-index: 2000;
+            animation: toastIn 0.3s ease-out;
+            max-width: 90%;
+            text-align: center;
+        }
+
+        @keyframes toastIn {
+            from {
+                opacity: 0;
+                transform: translate(-50%, -20px);
+            }
+            to {
+                opacity: 1;
+                transform: translate(-50%, 0);
+            }
+        }
+
+        .toast.error {
+            background: #f44336;
+        }
+
+        .toast.success {
+            background: #4CAF50;
+        }
+
+        .toast.info {
+            background: #2196F3;
+        }
+
+        /* Settings Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 2000;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .modal.show {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            max-width: 400px;
+            width: 100%;
+            color: #333;
+            position: relative;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .modal-header h2 {
+            font-size: 1.5rem;
+            margin: 0;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: #666;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-body {
+            margin-bottom: 20px;
+        }
+
+        /* Responsive */
+        @media (max-width: 480px) {
+            .translation-text {
+                font-size: 1.1rem;
+            }
+
+            .header h1 {
+                font-size: 1.1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Session Selection Screen -->
+    <div id="session-selection">
+        <h1>📱 Personal Translation</h1>
+        <p>Choose your session and language preference</p>
+        
+        <div class="selection-container">
+            <div class="input-group">
+                <label for="session-select">Session:</label>
+                <select id="session-select">
+                    <option value="main">Main Service</option>
+                    <option value="youth">Youth Meeting</option>
+                    <option value="bible_study">Bible Study</option>
+                    <option value="custom">Custom Session...</option>
+                </select>
+                
+                <div id="custom-session-input" class="custom-session">
+                    <input type="text" id="custom-session-id" placeholder="Enter custom session ID">
+                </div>
+            </div>
+
+            <div class="input-group">
+                <label>Preferred Language:</label>
+                <div class="language-selector">
+                    <div class="language-option selected" data-lang="en">
+                        🇺🇸 English
+                    </div>
+                    <div class="language-option" data-lang="es">
+                        🇪🇸 Español
+                    </div>
+                </div>
+            </div>
+
+            <button class="btn btn-primary" onclick="connectToSession()">Connect</button>
+        </div>
+    </div>
+
+    <!-- Main Display Screen -->
+    <div id="display-screen">
+        <div class="header">
+            <div class="header-top">
+                <h1>Church Translation</h1>
+                <div class="status">
+                    <div class="status-dot" id="status-dot"></div>
+                    <span id="status-text">Connecting...</span>
+                </div>
+            </div>
+            <div class="session-info">
+                <span class="session-badge" id="session-name">Main Service</span>
+                <span class="language-badge" id="language-name">English</span>
+            </div>
+        </div>
+
+        <div class="translation-container" id="translation-container">
+            <div class="empty-state">
+                <div class="empty-state-icon">🎤</div>
+                <div>Waiting for translation...</div>
+            </div>
+        </div>
+
+        <button class="settings-btn" onclick="openSettings()">⚙️</button>
+    </div>
+
+    <!-- Settings Modal -->
+    <div class="modal" id="settings-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Settings</h2>
+                <button class="close-btn" onclick="closeSettings()">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="input-group">
+                    <label>Change Language:</label>
+                    <div class="language-selector">
+                        <div class="language-option" data-lang="en" onclick="changeLanguage('en')">
+                            🇺🇸 English
+                        </div>
+                        <div class="language-option" data-lang="es" onclick="changeLanguage('es')">
+                            🇪🇸 Español
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <button class="btn btn-primary" onclick="disconnectSession()">Disconnect</button>
+        </div>
+    </div>
+
+    <script>
+        // ====================================================================
+        // Global State
+        // ====================================================================
+        let socket = null;
+        let currentSessionId = null;
+        let preferredLanguage = 'en';
+        let isConnected = false;
+
+        // Translation history
+        let translations = [];
+        const MAX_TRANSLATIONS = 50;
+
+        // ====================================================================
+        // UI Elements
+        // ====================================================================
+        const sessionSelection = document.getElementById('session-selection');
+        const displayScreen = document.getElementById('display-screen');
+        const sessionSelect = document.getElementById('session-select');
+        const customSessionInput = document.getElementById('custom-session-input');
+        const customSessionId = document.getElementById('custom-session-id');
+        const languageOptions = document.querySelectorAll('.language-option');
+        const sessionNameBadge = document.getElementById('session-name');
+        const languageNameBadge = document.getElementById('language-name');
+        const statusDot = document.getElementById('status-dot');
+        const statusText = document.getElementById('status-text');
+        const translationContainer = document.getElementById('translation-container');
+        const settingsModal = document.getElementById('settings-modal');
+
+        // ====================================================================
+        // Session Selection
+        // ====================================================================
+        sessionSelect.addEventListener('change', (e) => {
+            if (e.target.value === 'custom') {
+                customSessionInput.classList.add('show');
+                customSessionId.focus();
+            } else {
+                customSessionInput.classList.remove('show');
+            }
+        });
+
+        // Language selection
+        languageOptions.forEach(option => {
+            option.addEventListener('click', () => {
+                languageOptions.forEach(opt => opt.classList.remove('selected'));
+                option.classList.add('selected');
+                preferredLanguage = option.dataset.lang;
+            });
+        });
+
+        function connectToSession() {
+            let sessionId = sessionSelect.value;
+            
+            if (sessionId === 'custom') {
+                sessionId = customSessionId.value.trim();
+                if (!sessionId) {
+                    showToast('Please enter a custom session ID', 'error');
+                    return;
+                }
+            }
+
+            currentSessionId = sessionId;
+            sessionNameBadge.textContent = formatSessionName(sessionId);
+            languageNameBadge.textContent = preferredLanguage === 'en' ? 'English' : 'Español';
+            
+            // Hide selection, show display
+            sessionSelection.style.display = 'none';
+            displayScreen.classList.add('active');
+            
+            // Initialize socket connection
+            initializeSocket();
+        }
+
+        function formatSessionName(sessionId) {
+            const names = {
+                'main': 'Main Service',
+                'youth': 'Youth Meeting',
+                'bible_study': 'Bible Study'
+            };
+            return names[sessionId] || sessionId.replace(/_/g, ' ').toUpperCase();
+        }
+
+        // ====================================================================
+        // Socket.IO Connection
+        // ====================================================================
+        function initializeSocket() {
+            console.log('Connecting to server...');
+            updateStatus('Connecting...', false);
+
+            socket = io({
+                transports: ['websocket', 'polling'],
+                reconnection: true,
+                reconnectionDelay: 1000,
+                reconnectionAttempts: 10
+            });
+
+            // Connection established
+            socket.on('connect', () => {
+                console.log('Connected to server');
+                isConnected = true;
+                updateStatus('Connected', true);
+                
+                // Join the session room
+                socket.emit('join_session', {
+                    session_id: currentSessionId
+                });
+            });
+
+            // Join response
+            socket.on('join_response', (data) => {
+                console.log('Join response:', data);
+                if (data.success) {
+                    showToast(`Joined: ${currentSessionId}`, 'success');
+                    updateStatus('Active', true);
+                } else {
+                    showToast('Failed to join session', 'error');
+                }
+            });
+
+            // Translation updates
+            socket.on('translation_update', (data) => {
+                console.log('Translation:', data);
+                handleTranslationUpdate(data);
+            });
+
+            // Errors
+            socket.on('translation_error', (data) => {
+                console.error('Translation error:', data);
+                showToast(`Error: ${data.error}`, 'error');
+            });
+
+            // Disconnection
+            socket.on('disconnect', (reason) => {
+                console.log('Disconnected:', reason);
+                isConnected = false;
+                updateStatus('Disconnected', false);
+                showToast('Connection lost. Reconnecting...', 'error');
+            });
+
+            // Reconnection
+            socket.on('reconnect', (attemptNumber) => {
+                console.log('Reconnected after', attemptNumber, 'attempts');
+                isConnected = true;
+                updateStatus('Reconnected', true);
+                showToast('Reconnected', 'success');
+                
+                // Rejoin session
+                socket.emit('join_session', {
+                    session_id: currentSessionId
+                });
+            });
+        }
+
+        // ====================================================================
+        // Translation Handling
+        // ====================================================================
+        function handleTranslationUpdate(data) {
+            // Validate session
+            if (data.session_id !== currentSessionId) {
+                return;
+            }
+
+            const originalLang = data.original_lang;
+            const originalText = data.original_text;
+            const translatedText = data.translated_text;
+            const isFinal = data.is_final;
+
+            // Determine which text to display based on preference
+            let displayText;
+            let isOriginal;
+
+            if (preferredLanguage === originalLang) {
+                displayText = originalText;
+                isOriginal = true;
+            } else {
+                displayText = translatedText;
+                isOriginal = false;
+            }
+
+            // Update display
+            updateTranslationDisplay(displayText, isFinal, isOriginal, originalLang);
+        }
+
+        function updateTranslationDisplay(text, isFinal, isOriginal, originalLang) {
+            if (!text) return;
+
+            // Remove empty state
+            const emptyState = translationContainer.querySelector('.empty-state');
+            if (emptyState) {
+                emptyState.remove();
+            }
+
+            if (isFinal) {
+                // Add to history
+                translations.push({
+                    text: text,
+                    isOriginal: isOriginal,
+                    originalLang: originalLang,
+                    timestamp: new Date()
+                });
+
+                if (translations.length > MAX_TRANSLATIONS) {
+                    translations.shift();
+                }
+
+                // Remove any interim items
+                const interimItems = translationContainer.querySelectorAll('.interim');
+                interimItems.forEach(item => item.remove());
+
+                // Add final translation
+                const translationItem = createTranslationItem(text, false, isOriginal, originalLang);
+                translationContainer.appendChild(translationItem);
+
+                // Scroll to bottom
+                translationContainer.scrollTop = translationContainer.scrollHeight;
+
+            } else {
+                // Update or create interim item
+                let interimItem = translationContainer.querySelector('.interim');
+                
+                if (interimItem) {
+                    const textEl = interimItem.querySelector('.translation-text');
+                    textEl.textContent = text;
+                } else {
+                    interimItem = createTranslationItem(text, true, isOriginal, originalLang);
+                    translationContainer.appendChild(interimItem);
+                }
+
+                // Scroll to bottom
+                translationContainer.scrollTop = translationContainer.scrollHeight;
+            }
+        }
+
+        function createTranslationItem(text, isInterim, isOriginal, originalLang) {
+            const item = document.createElement('div');
+            item.className = `translation-item ${isInterim ? 'interim' : ''}`;
+
+            const textDiv = document.createElement('div');
+            textDiv.className = 'translation-text';
+            textDiv.textContent = text;
+
+            const meta = document.createElement('div');
+            meta.className = 'translation-meta';
+
+            const indicator = document.createElement('span');
+            indicator.className = 'original-indicator';
+            indicator.textContent = isOriginal ? 'Original' : 'Translated';
+
+            const time = document.createElement('span');
+            time.textContent = new Date().toLocaleTimeString();
+
+            meta.appendChild(indicator);
+            meta.appendChild(time);
+
+            item.appendChild(textDiv);
+            item.appendChild(meta);
+
+            return item;
+        }
+
+        // ====================================================================
+        // Settings
+        // ====================================================================
+        function openSettings() {
+            settingsModal.classList.add('show');
+            
+            // Update selected language in modal
+            const modalLangOptions = settingsModal.querySelectorAll('.language-option');
+            modalLangOptions.forEach(opt => {
+                opt.classList.remove('selected');
+                if (opt.dataset.lang === preferredLanguage) {
+                    opt.classList.add('selected');
+                }
+            });
+        }
+
+        function closeSettings() {
+            settingsModal.classList.remove('show');
+        }
+
+        function changeLanguage(lang) {
+            preferredLanguage = lang;
+            languageNameBadge.textContent = lang === 'en' ? 'English' : 'Español';
+            
+            // Update modal selection
+            const modalLangOptions = settingsModal.querySelectorAll('.language-option');
+            modalLangOptions.forEach(opt => {
+                opt.classList.remove('selected');
+                if (opt.dataset.lang === lang) {
+                    opt.classList.add('selected');
+                }
+            });
+
+            showToast(`Language changed to ${lang === 'en' ? 'English' : 'Español'}`, 'success');
+        }
+
+        function disconnectSession() {
+            if (socket) {
+                socket.emit('leave_session', {
+                    session_id: currentSessionId
+                });
+                socket.disconnect();
+            }
+
+            // Reset to selection screen
+            closeSettings();
+            displayScreen.classList.remove('active');
+            sessionSelection.style.display = 'flex';
+            translationContainer.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🎤</div><div>Waiting for translation...</div></div>';
+            translations = [];
+        }
+
+        // ====================================================================
+        // UI Updates
+        // ====================================================================
+        function updateStatus(text, connected) {
+            statusText.textContent = text;
+            if (connected) {
+                statusDot.classList.remove('disconnected');
+            } else {
+                statusDot.classList.add('disconnected');
+            }
+        }
+
+        function showToast(text, type = 'info') {
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.textContent = text;
+            document.body.appendChild(toast);
+
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        // ====================================================================
+        // Initialize
+        // ====================================================================
+        console.log('Personal Device Client initialized');
+
+        // Close modal on outside click
+        settingsModal.addEventListener('click', (e) => {
+            if (e.target === settingsModal) {
+                closeSettings();
+            }
+        });
+    </script>
+</body>
+</html>
