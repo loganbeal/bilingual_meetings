@@ -229,21 +229,49 @@
         }
 
         /* Translation Display */
+        /* container should be no larger than 80% of viewport height */
         .translation-container {
+            max-height: 90vh;
             flex: 1;
             padding: 20px;
             overflow-y: auto;
             -webkit-overflow-scrolling: touch;
+            display: flex;
+            flex-direction: column;
         }
 
         .translation-item {
             background: rgba(255, 255, 255, 0.15);
             border-radius: 15px;
             padding: 20px;
-            margin-bottom: 15px;
-            animation: slideIn 0.3s ease-out;
             backdrop-filter: blur(10px);
             border: 1px solid rgba(255, 255, 255, 0.2);
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+        }
+
+        .translation-lines {
+            flex: 1;
+            margin-bottom: 15px;
+            overflow-y: auto;
+        }
+
+        .translation-line {
+            font-size: 1.3rem;
+            line-height: 1.6;
+            margin-bottom: 10px;
+            /*animation: slideIn 0.3s ease-out;*/
+        }
+
+        .translation-line.original {
+            font-style: italic;
+            opacity: 0.95;
+        }
+
+        .translation-line.interim {
+            opacity: 0.6;
         }
 
         @keyframes slideIn {
@@ -257,24 +285,15 @@
             }
         }
 
-        .translation-item.interim {
-            opacity: 0.7;
-            border: 1px solid rgba(255, 255, 255, 0.4);
-            border-style: dashed;
-        }
-
-        .translation-text {
-            font-size: 1.3rem;
-            line-height: 1.6;
-            margin-bottom: 10px;
-        }
-
         .translation-meta {
             display: flex;
             justify-content: space-between;
             align-items: center;
             font-size: 0.8rem;
             opacity: 0.7;
+            padding-top: 10px;
+            padding-right: 50px;
+            border-top: 1px solid rgba(255, 255, 255, 0.2);
         }
 
         .original-indicator {
@@ -413,7 +432,7 @@
         .modal-body {
             margin-bottom: 20px;
         }
-
+        
         /* Responsive */
         @media (max-width: 480px) {
             .translation-text {
@@ -705,8 +724,46 @@
                 emptyState.remove();
             }
 
+            // Create or get the single translation item
+            let translationItem = translationContainer.querySelector('.translation-item');
+            if (!translationItem) {
+                translationItem = document.createElement('div');
+                translationItem.className = 'translation-item';
+                
+                const linesDiv = document.createElement('div');
+                linesDiv.className = 'translation-lines';
+                
+                const metaDiv = document.createElement('div');
+                metaDiv.className = 'translation-meta';
+                metaDiv.innerHTML = `
+                    <span class="original-indicator" id="indicator-text">Translated</span>
+                    <span id="timestamp-text">${new Date().toLocaleTimeString()}</span>
+                `;
+                
+                translationItem.appendChild(linesDiv);
+                translationItem.appendChild(metaDiv);
+                translationContainer.appendChild(translationItem);
+            }
+
+            const linesDiv = translationItem.querySelector('.translation-lines');
+            const metaDiv = translationItem.querySelector('.translation-meta');
+
             if (isFinal) {
-                // Add to history
+                // Remove any interim lines
+                const interimLines = linesDiv.querySelectorAll('.interim');
+                interimLines.forEach(line => line.remove());
+
+                // Add final line
+                const line = document.createElement('div');
+                line.className = `translation-line ${isOriginal ? 'original' : ''}`;
+                line.textContent = text;
+                linesDiv.appendChild(line);
+
+                // Update metadata
+                metaDiv.querySelector('#indicator-text').textContent = isOriginal ? 'Original' : 'Translated';
+                metaDiv.querySelector('#timestamp-text').textContent = new Date().toLocaleTimeString();
+
+                // Store in history
                 translations.push({
                     text: text,
                     isOriginal: isOriginal,
@@ -718,32 +775,26 @@
                     translations.shift();
                 }
 
-                // Remove any interim items
-                const interimItems = translationContainer.querySelectorAll('.interim');
-                interimItems.forEach(item => item.remove());
-
-                // Add final translation
-                const translationItem = createTranslationItem(text, false, isOriginal, originalLang);
-                translationContainer.appendChild(translationItem);
-
-                // Scroll to bottom
-                translationContainer.scrollTop = translationContainer.scrollHeight;
-
             } else {
-                // Update or create interim item
-                let interimItem = translationContainer.querySelector('.interim');
+                // Update or create interim line
+                let interimLine = linesDiv.querySelector('.interim');
                 
-                if (interimItem) {
-                    const textEl = interimItem.querySelector('.translation-text');
-                    textEl.textContent = text;
+                if (interimLine) {
+                    interimLine.textContent = text;
                 } else {
-                    interimItem = createTranslationItem(text, true, isOriginal, originalLang);
-                    translationContainer.appendChild(interimItem);
+                    interimLine = document.createElement('div');
+                    interimLine.className = `translation-line interim ${isOriginal ? 'original' : ''}`;
+                    interimLine.textContent = text;
+                    linesDiv.appendChild(interimLine);
                 }
 
-                // Scroll to bottom
-                translationContainer.scrollTop = translationContainer.scrollHeight;
+                // Update metadata
+                metaDiv.querySelector('#indicator-text').textContent = isOriginal ? 'Original' : 'Translated';
+                metaDiv.querySelector('#timestamp-text').textContent = new Date().toLocaleTimeString();
             }
+
+            // Scroll to bottom of lines
+            linesDiv.scrollTop = linesDiv.scrollHeight;
         }
 
         function createTranslationItem(text, isInterim, isOriginal, originalLang) {
