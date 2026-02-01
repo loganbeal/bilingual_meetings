@@ -170,7 +170,7 @@
 
         .language-column {
             background: rgba(255, 255, 255, 0.1);
-            max-height: 100%;
+            max-height: 85vh;
             border-radius: 15px;
             padding: 15px;
             display: flex;
@@ -198,8 +198,8 @@
         .text-display {
             flex: 1;
             overflow-y: auto;
-            display: flex;
-            flex-direction: column;
+            display: block;
+            /*flex-direction: column;*/
             gap: 15px;
         }
 
@@ -562,7 +562,7 @@
                 historyArray.forEach((historyText, index) => {
                     const textItem = document.createElement('span');
                     textItem.className = 'text-item final';
-                    textItem.textContent = historyText;
+                    textItem.textContent = historyText+' ';
                     
                     // Fade older items
                     const age = historyArray.length - index - 1;
