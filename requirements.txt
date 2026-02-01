@@ -3,7 +3,9 @@ Flask-SocketIO==5.3.4
 Flask-CORS==4.0.0
 python-socketio==5.9.0
 eventlet==0.33.3
-PyAudio==0.2.13
+PyAudio==0.2.14
 requests==2.31.0
 websocket-client==1.6.1
 python-dotenv==1.0.0
+websockets 
+dotenv
