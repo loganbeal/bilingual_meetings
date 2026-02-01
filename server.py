@@ -273,6 +273,74 @@ class SonioxClient:
                 "sample_rate": Config.AUDIO_RATE,
                 "num_channels": Config.AUDIO_CHANNELS,
                 
+                "context": {
+                    "general": [
+                        {"key": "organization", "value": "LDS Church"},
+                    ],
+                    "text": "These are lessons and sermons for the Church of Jesus Christ of Latter-day Saints. The content includes religious teachings, scriptures, and guidance for members of the church. The tone is spiritual, reverent and sometimes humorous, but never crude or vulgar.",
+                    "terms": [
+                        "priesthood",
+                        "prophet",
+                    ],
+                    "translation_terms": [
+                        {"source": "Stake", "target": "Estaca"},
+                        {"source": "Ward", "target": "Barrio"},
+                        {"source": "Branch", "target": "Rama"},
+                        {"source": "District", "target": "Distrito"},
+                        {"source": "Sacrament", "target": "Santa Cena"},
+                        {"source": "Sacrament Meeting", "target": "Reunión Sacramental"},
+                        {"source": "Relief Society", "target": "Sociedad de Socorro"},
+                        {"source": "Elders Quorum", "target": "Quórum de élderes"},
+                        {"source": "Primary", "target": "Primaria"},
+                        {"source": "Sunday School", "target": "Escuela Dominical"},
+                        {"source": "Young Men", "target": "Hombres Jóvenes"},
+                        {"source": "Young Women", "target": "Mujeres Jóvenes"},
+                        {"source": "Bishop", "target": "Obispo"},
+                        {"source": "Bishopric", "target": "Obispado"},
+                        {"source": "Stake President", "target": "Presidente de estaca"},
+                        {"source": "High Council", "target": "Sumo Consejo"},
+                        {"source": "Priesthood", "target": "Sacerdocio"},
+                        {"source": "Aaronic Priesthood", "target": "Sacerdocio Aarónico"},
+                        {"source": "Melchizedek Priesthood", "target": "Sacerdocio de Melquisedec"},
+                        {"source": "Deacon", "target": "Diácono"},
+                        {"source": "Teacher", "target": "Maestro"},
+                        {"source": "Priest", "target": "Presbítero"},
+                        {"source": "Elder", "target": "Élder"},
+                        {"source": "High Priest", "target": "Sumo Sacerdote"},
+                        {"source": "Seventy", "target": "Setenta"},
+                        {"source": "Apostle", "target": "Apóstol"},
+                        {"source": "Prophet", "target": "Profeta"},
+                        {"source": "General Conference", "target": "Conferencia General"},
+                        {"source": "Endowment", "target": "Investidura"},
+                        {"source": "Sealing", "target": "Sellamiento"},
+                        {"source": "Tithing", "target": "Diezmo"},
+                        {"source": "Fast Offering", "target": "Ofrenda de ayuno"},
+                        {"source": "Fast Sunday", "target": "Domingo de ayuno"},
+                        {"source": "Testimony", "target": "Testimonio"},
+                        {"source": "Testimony Meeting", "target": "Reunión de testimonios"},
+                        {"source": "Calling", "target": "Llamamiento"},
+                        {"source": "Release", "target": "Relevo"},
+                        {"source": "Sustaining", "target": "Sostenimiento"},
+                        {"source": "Set apart", "target": "Apartar"},
+                        {"source": "Gospel", "target": "Evangelio"},
+                        {"source": "Atonement", "target": "Expiación"},
+                        {"source": "Covenant", "target": "Convenio"},
+                        {"source": "Ordinance", "target": "Ordenanza"},
+                        {"source": "Temple", "target": "Templo"},
+                        {"source": "Meetinghouse", "target": "Centro de reuniones"},
+                        {"source": "Chapel", "target": "Capilla"},
+                        {"source": "Family History", "target": "Historia Familiar"},
+                        {"source": "Missionary", "target": "Misionero"},
+                        {"source": "Seminary", "target": "Seminario"},
+                        {"source": "Institute", "target": "Instituto"},
+                        {"source": "Book of Mormon", "target": "Libro de Mormón"},
+                        {"source": "Doctrine and Covenants", "target": "Doctrina y Convenios"},
+                        {"source": "Pearl of Great Price", "target": "Perla de Gran Precio"},
+                        {"source": "Come, Follow Me", "target": "Ven, sígueme"},
+                        {"source": "Ministering", "target": "Ministración"}
+                    ]
+                },
+
                 # Enable endpoint detection for natural pauses
                 "enable_endpoint_detection": True,
                 
@@ -389,21 +457,14 @@ class SonioxClient:
                                 def clean_text(s: str) -> str:
                                     if not s:
                                         return s
-                                    # Normalize non-breaking spaces
-                                    s = s.replace('\u00A0', ' ')
-                                    # Collapse repeated whitespace
-                                    s = re.sub(r'\s+', ' ', s)
-                                    # Remove spaces before punctuation (.,!?;:)
-                                    s = re.sub(r'\s+([\.,!\?;:\)\]])', r"\1", s)
-                                    # Remove spaces after opening brackets
-                                    s = re.sub(r'([\(\[\{])\s+', r"\1", s)
-                                    # Remove spaces around apostrophes (e.g., don ' t -> don't)
-                                    s = re.sub(r"\s*'\s*", "'", s)
-                                    # Trim
+                                    #remove all vulgarities
+                                    s = re.sub(r'\b(fuck|shit|damn|bastard|penis|ass|bitch|dick|piss)\b', '#$%!', s, flags=re.IGNORECASE)
+                                    #remove all spanish vulgarities
+                                    s = re.sub(r'\b(joder|mierda|maldita sea|cabron|pene|culo|perra|polla|meada)\b', '#$%!', s, flags=re.IGNORECASE)
                                     return s.strip()
 
-                                #original_text = clean_text(original_text)
-                                #translated_text = clean_text(translated_text)
+                                original_text = clean_text(original_text)
+                                translated_text = clean_text(translated_text)
                                 
                                 # Broadcast if we have text
                                 if original_text or translated_text:
