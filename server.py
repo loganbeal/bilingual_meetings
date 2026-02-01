@@ -24,9 +24,16 @@ from flask import Flask, render_template, send_from_directory, jsonify, request
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from flask_cors import CORS
 
-# Configure logging
+from dotenv import load_dotenv
+import re
+
+# Load the .env file
+load_dotenv()
+
+# Configure logging. Use DEBUG level only when DEBUG env var is true; otherwise reduce noise.
+log_level = logging.DEBUG if os.getenv('DEBUG', 'false').lower() == 'true' else logging.WARNING
 logging.basicConfig(
-    level=logging.INFO,
+    level=log_level,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout),
@@ -229,7 +236,7 @@ class SonioxClient:
     
     def _soniox_worker(self):
         """
-        Production worker - connects to Soniox API and processes real audio.
+        Production worker - connects to Soniox WebSocket API and processes real audio.
         """
         logger.info(f"[{self.session_id}] Soniox worker started")
         
@@ -239,70 +246,206 @@ class SonioxClient:
             return
         
         try:
-            import soniox
-            from soniox.speech_service import SpeechClient
-            from soniox.transcribe_live import transcribe_stream
+            from websockets.sync.client import connect
+            from websockets.exceptions import ConnectionClosedOK, ConnectionClosedError
             
-            # Initialize Soniox client
-            client = SpeechClient(api_key=Config.SONIOX_API_KEY)
+            SONIOX_WEBSOCKET_URL = "wss://stt-rt.soniox.com/transcribe-websocket"
             
             # Configure transcription with translation
-            # English to Spanish and Spanish to English
+            # Two-way translation: English <-> Spanish
             config = {
-                "model": "generic",
-                "enable_translation": True,
-                "translation_config": {
-                    "target_languages": ["es", "en"]  # Translate to both
+                "api_key": Config.SONIOX_API_KEY,
+                "model": "stt-rt-v3",
+                
+                # Enable language identification and hints
+                "language_hints": ["en", "es"],
+                "enable_language_identification": True,
+                
+                # Two-way translation between English and Spanish
+                "translation": {
+                    "type": "two_way",
+                    "language_a": "en",
+                    "language_b": "es",
                 },
+                
+                # Audio format - raw PCM 16-bit
+                "audio_format": "pcm_s16le",
+                "sample_rate": Config.AUDIO_RATE,
+                "num_channels": Config.AUDIO_CHANNELS,
+                
+                # Enable endpoint detection for natural pauses
                 "enable_endpoint_detection": True,
-                "enable_streaming_speaker_diarization": False,
+                
+                # Optional: Enable speaker diarization if needed
+                "enable_speaker_diarization": False,
             }
             
-            logger.info(f"[{self.session_id}] Soniox client configured")
+            logger.info(f"[{self.session_id}] Connecting to Soniox WebSocket...")
             
-            # Audio generator from queue
-            def audio_generator():
-                while not self.should_stop.is_set():
+            with connect(SONIOX_WEBSOCKET_URL) as ws:
+                # Send configuration as first message
+                ws.send(json.dumps(config))
+                logger.info(f"[{self.session_id}] Soniox WebSocket connected and configured")
+                
+                                # Start audio streaming thread
+                def stream_audio():
                     try:
-                        chunk = self.audio_queue.get(timeout=0.1)
-                        self.bytes_sent += len(chunk)
-                        yield chunk
-                    except queue.Empty:
-                        continue
+                        while not self.should_stop.is_set():
+                            try:
+                                chunk = self.audio_queue.get(timeout=0.1)
+                                if chunk:
+                                    try:
+                                        ws.send(chunk)
+                                        self.bytes_sent += len(chunk)
+                                    except (ConnectionClosedOK, ConnectionClosedError) as e:
+                                        logger.info(f"[{self.session_id}] WebSocket closed while sending audio: {e}")
+                                        # Stop further attempts to send
+                                        self.should_stop.set()
+                                        break
+                            except queue.Empty:
+                                continue
+                    except Exception as e:
+                        # Only log unexpected errors
+                        logger.error(f"[{self.session_id}] Audio streaming error: {e}", exc_info=True)
+                    finally:
+                        # Send empty string to signal end of audio
+                        try:
+                            if not getattr(ws, 'closed', False):
+                                ws.send("")
+                                logger.info(f"[{self.session_id}] Sent end-of-audio signal")
+                        except Exception:
+                            # Ignore errors here; connection may already be closed
+                            pass
+                
+                audio_thread = threading.Thread(target=stream_audio, daemon=True)
+                audio_thread.start()
+                
+                # Process responses
+                # Track tokens by language for aggregation
+                current_original_tokens = []
+                current_translated_tokens = []
+                current_language = None
+                
+                try:
+                    while not self.should_stop.is_set():
+                        try:
+                            message = ws.recv(timeout=0.1)
+                            response = json.loads(message)
+                            
+                            # Check for errors
+                            if response.get('error_code') is not None:
+                                error_msg = f"{response['error_code']}: {response.get('error_message', 'Unknown error')}"
+                                logger.error(f"[{self.session_id}] Soniox error: {error_msg}")
+                                self._broadcast_error(error_msg)
+                                break
+                            
+                            # Process tokens
+                            tokens = response.get('tokens', [])
+                            if tokens:
+                                self.results_received += 1
+                                
+                                # Separate original and translated tokens
+                                original_tokens = []
+                                translated_tokens = []
+                                
+                                for token in tokens:
+                                    text = token.get('text', '')
+                                    is_final = token.get('is_final', False)
+                                    language = token.get('language', 'en')
+                                    translation_status = token.get('translation_status', 'none')
+                                    
+                                    if not text or text in ['<end>', '<fin>']:
+                                        continue
+                                    
+                                    if translation_status == 'translation':
+                                        translated_tokens.append(token)
+                                    elif translation_status == 'original' or translation_status == 'none':
+                                        original_tokens.append(token)
+                                        if language:
+                                            current_language = language
+                                
+                                # Update current tokens
+                                # For non-final, we accumulate; for final, we use as-is
+                                has_final = any(t.get('is_final') for t in tokens)
+                                
+                                if has_final:
+                                    # Update with final tokens
+                                    for token in original_tokens:
+                                        if token.get('is_final'):
+                                            current_original_tokens.append(token)
+                                    for token in translated_tokens:
+                                        if token.get('is_final'):
+                                            current_translated_tokens.append(token)
+                                
+                                # Build text from tokens by concatenating token texts
+                                # (tokens may already contain leading/trailing spaces).
+                                original_text = ''.join(t.get('text', '') for t in original_tokens if t.get('text'))
+                                translated_text = ''.join(t.get('text', '') for t in translated_tokens if t.get('text'))
+
+                                # Clean up common spacing/tokenization artifacts:
+                                #  - Collapse multiple whitespace
+                                #  - Remove spaces before punctuation
+                                #  - Remove stray spaces around apostrophes
+                                def clean_text(s: str) -> str:
+                                    if not s:
+                                        return s
+                                    # Normalize non-breaking spaces
+                                    s = s.replace('\u00A0', ' ')
+                                    # Collapse repeated whitespace
+                                    s = re.sub(r'\s+', ' ', s)
+                                    # Remove spaces before punctuation (.,!?;:)
+                                    s = re.sub(r'\s+([\.,!\?;:\)\]])', r"\1", s)
+                                    # Remove spaces after opening brackets
+                                    s = re.sub(r'([\(\[\{])\s+', r"\1", s)
+                                    # Remove spaces around apostrophes (e.g., don ' t -> don't)
+                                    s = re.sub(r"\s*'\s*", "'", s)
+                                    # Trim
+                                    return s.strip()
+
+                                #original_text = clean_text(original_text)
+                                #translated_text = clean_text(translated_text)
+                                
+                                # Broadcast if we have text
+                                if original_text or translated_text:
+                                    self._broadcast_translation(
+                                        original_lang=current_language or 'en',
+                                        original_text=original_text,
+                                        translated_text=translated_text,
+                                        is_final=has_final
+                                    )
+                                
+                                # Clear non-final tokens after sending final
+                                if has_final:
+                                    # Reset for next phrase
+                                    current_original_tokens = []
+                                    current_translated_tokens = []
+                            
+                            # Check if session is finished
+                            if response.get('finished'):
+                                logger.info(f"[{self.session_id}] Soniox session finished")
+                                break
+                                
+                        except TimeoutError:
+                            # Normal timeout, continue loop
+                            continue
+                except ConnectionClosedOK:
+                    logger.info(f"[{self.session_id}] Soniox connection closed normally")
+                except ConnectionClosedError as e:
+                    logger.error(f"[{self.session_id}] Soniox connection closed with error: {e}")
+                    self._broadcast_error(f"Connection error: {e}")
+                
+                # Wait for audio thread to finish
+                audio_thread.join(timeout=2)
             
-            # Process results
-            for result in transcribe_stream(client, audio_generator(), **config):
-                if self.should_stop.is_set():
-                    break
-                
-                self.results_received += 1
-                
-                # Extract original and translated text
-                original_text = result.get('text', '')
-                is_final = result.get('is_final', False)
-                detected_lang = result.get('language', 'en')
-                
-                # Get translation
-                translations = result.get('translations', {})
-                target_lang = 'es' if detected_lang == 'en' else 'en'
-                translated_text = translations.get(target_lang, '')
-                
-                if original_text:
-                    self._broadcast_translation(
-                        original_lang=detected_lang,
-                        original_text=original_text,
-                        translated_text=translated_text,
-                        is_final=is_final
-                    )
-            
-        except ImportError:
-            logger.error(f"[{self.session_id}] Soniox SDK not installed. Install with: pip install soniox")
-            self._broadcast_error("Soniox SDK not installed")
+        except ImportError as e:
+            logger.error(f"[{self.session_id}] Missing required library: {e}")
+            logger.error(f"[{self.session_id}] Install with: pip install websockets")
+            self._broadcast_error("WebSocket library not installed")
         except Exception as e:
             logger.error(f"[{self.session_id}] Soniox worker error: {e}", exc_info=True)
             self._broadcast_error(f"Translation error: {str(e)}")
-        finally:
-            logger.info(f"[{self.session_id}] Soniox worker stopped")
+        #finally:
+        #    logger.info(f"[{self.session_id}] Soniox worker stopped")
     
     def _broadcast_translation(self, original_lang: str, original_text: str, 
                              translated_text: str, is_final: bool):
@@ -327,8 +470,8 @@ class SonioxClient:
         # Broadcast to session room
         self.socketio.emit('translation_update', message, room=self.session_id)
         
-        if is_final:
-            logger.info(f"[{self.session_id}] {original_lang.upper()}: {original_text[:50]}...")
+        #if is_final:
+        #    logger.info(f"[{self.session_id}] {original_lang.upper()}: {original_text[:50]}...")
     
     def _broadcast_error(self, error_message: str):
         """Broadcast error message to session room"""
@@ -568,8 +711,18 @@ app = Flask(__name__, static_folder='static', template_folder='templates')
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'church-translation-secret-key-change-in-production')
 CORS(app)
 
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading', 
-                    logger=True, engineio_logger=False)
+socketio = SocketIO(
+    app,
+    cors_allowed_origins="*",
+    async_mode='threading',
+    logger=Config.DEBUG,
+    engineio_logger=Config.DEBUG
+)
+
+# When not debugging, reduce verbosity of the socketio/engineio loggers
+if not Config.DEBUG:
+    logging.getLogger('socketio.server').setLevel(logging.WARNING)
+    logging.getLogger('engineio.server').setLevel(logging.WARNING)
 
 # Initialize session manager
 session_manager = SessionManager(socketio)

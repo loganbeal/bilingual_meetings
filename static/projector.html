@@ -560,7 +560,7 @@
                 // Clear display and show all history
                 displayElement.innerHTML = '';
                 historyArray.forEach((historyText, index) => {
-                    const textItem = document.createElement('div');
+                    const textItem = document.createElement('span');
                     textItem.className = 'text-item final';
                     textItem.textContent = historyText;
                     
@@ -579,7 +579,7 @@
                 if (existingInterim) {
                     existingInterim.textContent = text;
                 } else {
-                    const textItem = document.createElement('div');
+                    const textItem = document.createElement('span');
                     textItem.className = 'text-item interim';
                     textItem.textContent = text;
                     displayElement.appendChild(textItem);

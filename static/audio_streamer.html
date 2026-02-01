@@ -293,7 +293,11 @@
 
             <div class="input-group">
                 <label for="session-id">Session ID:</label>
-                <input type="text" id="session-id" placeholder="e.g., youth, bible_study" value="youth">
+                <select id="session-id" name="session-id">
+                    <option value="main">main</option>
+                    <option value="youth" selected>youth</option>
+                    <option value="bible-study">bible-study</option>
+                </select>
             </div>
 
             <div class="input-group">

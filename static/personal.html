@@ -754,9 +754,9 @@
                 interimLines.forEach(line => line.remove());
 
                 // Add final line
-                const line = document.createElement('div');
+                const line = document.createElement('span');
                 line.className = `translation-line ${isOriginal ? 'original' : ''}`;
-                line.textContent = text;
+                line.textContent = text+' ';
                 linesDiv.appendChild(line);
 
                 // Update metadata
@@ -782,7 +782,7 @@
                 if (interimLine) {
                     interimLine.textContent = text;
                 } else {
-                    interimLine = document.createElement('div');
+                    interimLine = document.createElement('span');
                     interimLine.className = `translation-line interim ${isOriginal ? 'original' : ''}`;
                     interimLine.textContent = text;
                     linesDiv.appendChild(interimLine);
