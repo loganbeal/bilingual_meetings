@@ -146,9 +146,15 @@ class SonioxClient:
             audio_chunk: Raw audio bytes (16kHz, 16-bit PCM)
         """
         try:
+            # If the queue is full, we must be lagging. Discard oldest chunk.
             self.audio_queue.put_nowait(audio_chunk)
         except queue.Full:
-            logger.warning(f"[{self.session_id}] Audio queue full, dropping chunk")
+            try:
+                self.audio_queue.get_nowait()
+                self.audio_queue.put_nowait(audio_chunk)
+                logger.warning(f"[{self.session_id}] Audio queue full, dropping oldest chunk")
+            except queue.Empty:
+                pass
     
     def _testing_worker(self):
         """
@@ -242,49 +248,70 @@ class SonioxClient:
         
         if not Config.SONIOX_API_KEY:
             logger.error(f"[{self.session_id}] SONIOX_API_KEY not set!")
-            self._broadcast_error("API key not configured")
+            if hasattr(self, '_broadcast_error'):
+                self._broadcast_error("API key not configured")
             return
         
         try:
             from websockets.sync.client import connect
             from websockets.exceptions import ConnectionClosedOK, ConnectionClosedError
+        except ImportError as e:
+            logger.error(f"[{self.session_id}] Missing required library: {e}")
+            logger.error(f"[{self.session_id}] Install with: pip install websockets")
+            if hasattr(self, '_broadcast_error'):
+                self._broadcast_error("WebSocket library not installed")
+            return
             
-            SONIOX_WEBSOCKET_URL = "wss://stt-rt.soniox.com/transcribe-websocket"
-            
-            # Configure transcription with translation
-            # Two-way translation: English <-> Spanish
-            config = {
-                "api_key": Config.SONIOX_API_KEY,
-                "model": "stt-rt-v3",
-                
-                # Enable language identification and hints
-                "language_hints": ["en", "es"],
-                "enable_language_identification": True,
-                
-                # Two-way translation between English and Spanish
-                "translation": {
-                    "type": "two_way",
-                    "language_a": "en",
-                    "language_b": "es",
-                },
-                
-                # Audio format - raw PCM 16-bit
-                "audio_format": "pcm_s16le",
-                "sample_rate": Config.AUDIO_RATE,
-                "num_channels": Config.AUDIO_CHANNELS,
-                
-                "context": {
-                    "general": [
-                        {"key": "organization", "value": "LDS Church"},
-                    ],
-                    "text": "These are lessons and sermons for the Church of Jesus Christ of Latter-day Saints. The content includes religious teachings, scriptures, and guidance for members of the church. The tone is spiritual, reverent and sometimes humorous, but never crude or vulgar.",
+        SONIOX_WEBSOCKET_URL = "wss://stt-rt.soniox.com/transcribe-websocket"
+        
+        while not self.should_stop.is_set():
+            try:
+                # Configure transcription with translation
+                # Two-way translation: English <-> Spanish
+                config = {
+                    "api_key": Config.SONIOX_API_KEY,
+                    "model": "stt-rt-v4",
+                    
+                    # Enable language identification and hints
+                    "language_hints": ["en", "es"],
+                    "enable_language_identification": True,
+                    
+                    # Two-way translation between English and Spanish
+                    "translation": {
+                        "type": "two_way",
+                        "language_a": "en",
+                        "language_b": "es",
+                    },
+                    
+                    # Audio format - raw PCM 16-bit
+                    "audio_format": "pcm_s16le",
+                    "sample_rate": Config.AUDIO_RATE,
+                    "num_channels": Config.AUDIO_CHANNELS,
+                    
+                    "context": {
+                        "general": [
+                            {"key": "organization", "value": "LDS Church"},
+                        ],
+                    "text": "These are lessons and sermons for the Church of Jesus Christ of Latter-day Saints. The content includes religious teachings, scriptures, and guidance for members of the church. The tone is spiritual, reverent and sometimes humorous, but never crude or vulgar. People may talk about hell or damnation in a religious context.",
                     "terms": [
                         "priesthood",
                         "prophet",
+                        "Mormon",
+                        "Latter-day",
+                        "Moroni",
+                        "Nephi",
+                        "Alma",
+                        "Mosiah",
+                        "Lamanites",
+                        "Nephites",
+                        "Nauvoo",
+                        "Deseret"
                     ],
                     "translation_terms": [
                         {"source": "Stake", "target": "Estaca"},
                         {"source": "Ward", "target": "Barrio"},
+                        {"source": "Ward Council", "target": "Consejo de barrio"},
+                        {"source": "Stake Council", "target": "Consejo de estaca"},
                         {"source": "Branch", "target": "Rama"},
                         {"source": "District", "target": "Distrito"},
                         {"source": "Sacrament", "target": "Santa Cena"},
@@ -337,62 +364,57 @@ class SonioxClient:
                         {"source": "Doctrine and Covenants", "target": "Doctrina y Convenios"},
                         {"source": "Pearl of Great Price", "target": "Perla de Gran Precio"},
                         {"source": "Come, Follow Me", "target": "Ven, sígueme"},
-                        {"source": "Ministering", "target": "Ministración"}
+                        {"source": "Ministering", "target": "Ministración"},
+                        {"source": "Patriarchal Blessing", "target": "Bendición Patriarcal"}
                     ]
-                },
-
-                # Enable endpoint detection for natural pauses
-                "enable_endpoint_detection": True,
-                
-                # Optional: Enable speaker diarization if needed
-                "enable_speaker_diarization": False,
+                }
             }
-            
-            logger.info(f"[{self.session_id}] Connecting to Soniox WebSocket...")
-            
-            with connect(SONIOX_WEBSOCKET_URL) as ws:
-                # Send configuration as first message
-                ws.send(json.dumps(config))
-                logger.info(f"[{self.session_id}] Soniox WebSocket connected and configured")
                 
-                                # Start audio streaming thread
-                def stream_audio():
-                    try:
-                        while not self.should_stop.is_set():
-                            try:
-                                chunk = self.audio_queue.get(timeout=0.1)
-                                if chunk:
-                                    try:
-                                        ws.send(chunk)
-                                        self.bytes_sent += len(chunk)
-                                    except (ConnectionClosedOK, ConnectionClosedError) as e:
-                                        logger.info(f"[{self.session_id}] WebSocket closed while sending audio: {e}")
-                                        # Stop further attempts to send
-                                        self.should_stop.set()
-                                        break
-                            except queue.Empty:
-                                continue
-                    except Exception as e:
-                        # Only log unexpected errors
-                        logger.error(f"[{self.session_id}] Audio streaming error: {e}", exc_info=True)
-                    finally:
-                        # Send empty string to signal end of audio
+                # Connect to WebSocket
+                with connect(SONIOX_WEBSOCKET_URL) as ws:
+                    logger.info(f"[{self.session_id}] Connected to Soniox API")
+                    
+                    # Send configuration first
+                    ws.send(json.dumps(config))
+                    
+                    # Start audio streaming thread
+                    def stream_audio():
                         try:
-                            if not getattr(ws, 'closed', False):
-                                ws.send("")
-                                logger.info(f"[{self.session_id}] Sent end-of-audio signal")
-                        except Exception:
-                            # Ignore errors here; connection may already be closed
-                            pass
-                
-                audio_thread = threading.Thread(target=stream_audio, daemon=True)
-                audio_thread.start()
-                
-                # Process responses
-                # Track tokens by language for aggregation
-                current_original_tokens = []
-                current_translated_tokens = []
-                current_language = None
+                            while not self.should_stop.is_set():
+                                try:
+                                    chunk = self.audio_queue.get(timeout=0.1)
+                                    if chunk:
+                                        try:
+                                            ws.send(chunk)
+                                            self.bytes_sent += len(chunk)
+                                        except (ConnectionClosedOK, ConnectionClosedError) as e:
+                                            logger.info(f"[{self.session_id}] WebSocket closed while sending audio: {e}")
+                                            # Stop further attempts to send
+                                            self.should_stop.set()
+                                            break
+                                except queue.Empty:
+                                    continue
+                        except Exception as e:
+                            # Only log unexpected errors
+                            logger.error(f"[{self.session_id}] Audio streaming error: {e}", exc_info=True)
+                        finally:
+                            # Send empty string to signal end of audio
+                            try:
+                                if not getattr(ws, 'closed', False):
+                                    ws.send("")
+                                    logger.info(f"[{self.session_id}] Sent end-of-audio signal")
+                            except Exception:
+                                # Ignore errors here; connection may already be closed
+                                pass
+                    
+                    audio_thread = threading.Thread(target=stream_audio, daemon=True)
+                    audio_thread.start()
+                    
+                    # Process responses
+                    # Track tokens by language for aggregation
+                    current_original_tokens = []
+                    current_translated_tokens = []
+                    current_language = None
                 
                 try:
                     while not self.should_stop.is_set():
@@ -404,9 +426,9 @@ class SonioxClient:
                             if response.get('error_code') is not None:
                                 error_msg = f"{response['error_code']}: {response.get('error_message', 'Unknown error')}"
                                 logger.error(f"[{self.session_id}] Soniox error: {error_msg}")
-                                self._broadcast_error(error_msg)
+                                if hasattr(self, '_broadcast_error'):
+                                    self._broadcast_error(error_msg)
                                 break
-                            
                             # Process tokens
                             tokens = response.get('tokens', [])
                             if tokens:
@@ -490,23 +512,29 @@ class SonioxClient:
                             # Normal timeout, continue loop
                             continue
                 except ConnectionClosedOK:
-                    logger.info(f"[{self.session_id}] Soniox connection closed normally")
+                    logger.info(f"[{self.session_id}] Soniox connection closed normally. Restarting...")
                 except ConnectionClosedError as e:
-                    logger.error(f"[{self.session_id}] Soniox connection closed with error: {e}")
-                    self._broadcast_error(f"Connection error: {e}")
-                
+                    logger.error(f"[{self.session_id}] Soniox connection closed with error: {e}. Reconnecting...")
+                    if hasattr(self, '_broadcast_error'):
+                        self._broadcast_error(f"Connection error: {e}. Reconnecting...")
+                except Exception as e:
+                    logger.error(f"[{self.session_id}] Soniox connection exception: {e}")
+                    
                 # Wait for audio thread to finish
                 audio_thread.join(timeout=2)
-            
-        except ImportError as e:
-            logger.error(f"[{self.session_id}] Missing required library: {e}")
-            logger.error(f"[{self.session_id}] Install with: pip install websockets")
-            self._broadcast_error("WebSocket library not installed")
-        except Exception as e:
-            logger.error(f"[{self.session_id}] Soniox worker error: {e}", exc_info=True)
-            self._broadcast_error(f"Translation error: {str(e)}")
-        #finally:
-        #    logger.info(f"[{self.session_id}] Soniox worker stopped")
+                
+                if not self.should_stop.is_set():
+                    # Briefly wait before attempting to reconnect
+                    logger.info(f"[{self.session_id}] Waiting 2 seconds before reconnecting...")
+                    time.sleep(2)
+                    
+            except Exception as e:
+                logger.error(f"[{self.session_id}] Soniox worker error: {e}", exc_info=True)
+                if hasattr(self, '_broadcast_error'):
+                    self._broadcast_error(f"Translation error: {str(e)}")
+                # If we get here it means we couldn't even connect. Backoff and retry.
+                if not self.should_stop.is_set():
+                    time.sleep(5)
     
     def _broadcast_translation(self, original_lang: str, original_text: str, 
                              translated_text: str, is_final: bool):
@@ -528,19 +556,25 @@ class SonioxClient:
             "timestamp": datetime.now().isoformat()
         }
         
-        # Broadcast to session room
-        self.socketio.emit('translation_update', message, room=self.session_id)
+        try:
+            # Broadcast to session room
+            self.socketio.emit('translation_update', message, room=self.session_id)
+        except Exception as e:
+            logger.error(f"[{self.session_id}] Error broadcasting translation: {e}")
         
         #if is_final:
         #    logger.info(f"[{self.session_id}] {original_lang.upper()}: {original_text[:50]}...")
     
     def _broadcast_error(self, error_message: str):
         """Broadcast error message to session room"""
-        self.socketio.emit('translation_error', {
-            "session_id": self.session_id,
-            "error": error_message,
-            "timestamp": datetime.now().isoformat()
-        }, room=self.session_id)
+        try:
+            self.socketio.emit('translation_error', {
+                "session_id": self.session_id,
+                "error": error_message,
+                "timestamp": datetime.now().isoformat()
+            }, room=self.session_id)
+        except Exception as e:
+            logger.error(f"[{self.session_id}] Error broadcasting error: {e}")
 
 
 # ============================================================================
@@ -1052,6 +1086,7 @@ if __name__ == '__main__':
             host=Config.HOST,
             port=Config.PORT,
             debug=Config.DEBUG,
+            allow_unsafe_werkzeug=True,
             use_reloader=False  # Disable reloader to prevent duplicate sessions
         )
     except KeyboardInterrupt:

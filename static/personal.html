@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -198,8 +199,15 @@
         }
 
         @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
         }
 
         .status-dot.disconnected {
@@ -256,22 +264,27 @@
             flex: 1;
             margin-bottom: 15px;
             overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
         }
 
         .translation-line {
             font-size: 1.3rem;
             line-height: 1.6;
             margin-bottom: 10px;
-            /*animation: slideIn 0.3s ease-out;*/
         }
 
         .translation-line.original {
             font-style: italic;
             opacity: 0.95;
+            font-weight: 300;
         }
 
         .translation-line.interim {
-            opacity: 0.6;
+            opacity: 0.5;
+            font-weight: 300;
+            animation: slideIn 0.3s ease-out;
         }
 
         @keyframes slideIn {
@@ -279,6 +292,7 @@
                 opacity: 0;
                 transform: translateY(20px);
             }
+
             to {
                 opacity: 1;
                 transform: translateY(0);
@@ -356,6 +370,7 @@
                 opacity: 0;
                 transform: translate(-50%, -20px);
             }
+
             to {
                 opacity: 1;
                 transform: translate(-50%, 0);
@@ -432,7 +447,7 @@
         .modal-body {
             margin-bottom: 20px;
         }
-        
+
         /* Responsive */
         @media (max-width: 480px) {
             .translation-text {
@@ -445,12 +460,13 @@
         }
     </style>
 </head>
+
 <body>
     <!-- Session Selection Screen -->
     <div id="session-selection">
         <h1>📱 Personal Translation</h1>
         <p>Choose your session and language preference</p>
-        
+
         <div class="selection-container">
             <div class="input-group">
                 <label for="session-select">Session:</label>
@@ -460,7 +476,7 @@
                     <option value="bible_study">Bible Study</option>
                     <option value="custom">Custom Session...</option>
                 </select>
-                
+
                 <div id="custom-session-input" class="custom-session">
                     <input type="text" id="custom-session-id" placeholder="Enter custom session ID">
                 </div>
@@ -584,7 +600,7 @@
 
         function connectToSession() {
             let sessionId = sessionSelect.value;
-            
+
             if (sessionId === 'custom') {
                 sessionId = customSessionId.value.trim();
                 if (!sessionId) {
@@ -596,11 +612,11 @@
             currentSessionId = sessionId;
             sessionNameBadge.textContent = formatSessionName(sessionId);
             languageNameBadge.textContent = preferredLanguage === 'en' ? 'English' : 'Español';
-            
+
             // Hide selection, show display
             sessionSelection.style.display = 'none';
             displayScreen.classList.add('active');
-            
+
             // Initialize socket connection
             initializeSocket();
         }
@@ -633,7 +649,7 @@
                 console.log('Connected to server');
                 isConnected = true;
                 updateStatus('Connected', true);
-                
+
                 // Join the session room
                 socket.emit('join_session', {
                     session_id: currentSessionId
@@ -677,7 +693,7 @@
                 isConnected = true;
                 updateStatus('Reconnected', true);
                 showToast('Reconnected', 'success');
-                
+
                 // Rejoin session
                 socket.emit('join_session', {
                     session_id: currentSessionId
@@ -729,17 +745,17 @@
             if (!translationItem) {
                 translationItem = document.createElement('div');
                 translationItem.className = 'translation-item';
-                
+
                 const linesDiv = document.createElement('div');
                 linesDiv.className = 'translation-lines';
-                
+
                 const metaDiv = document.createElement('div');
                 metaDiv.className = 'translation-meta';
                 metaDiv.innerHTML = `
                     <span class="original-indicator" id="indicator-text">Translated</span>
                     <span id="timestamp-text">${new Date().toLocaleTimeString()}</span>
                 `;
-                
+
                 translationItem.appendChild(linesDiv);
                 translationItem.appendChild(metaDiv);
                 translationContainer.appendChild(translationItem);
@@ -756,7 +772,7 @@
                 // Add final line
                 const line = document.createElement('span');
                 line.className = `translation-line ${isOriginal ? 'original' : ''}`;
-                line.textContent = text+' ';
+                line.textContent = text + ' ';
                 linesDiv.appendChild(line);
 
                 // Update metadata
@@ -778,7 +794,7 @@
             } else {
                 // Update or create interim line
                 let interimLine = linesDiv.querySelector('.interim');
-                
+
                 if (interimLine) {
                     interimLine.textContent = text;
                 } else {
@@ -829,7 +845,7 @@
         // ====================================================================
         function openSettings() {
             settingsModal.classList.add('show');
-            
+
             // Update selected language in modal
             const modalLangOptions = settingsModal.querySelectorAll('.language-option');
             modalLangOptions.forEach(opt => {
@@ -847,7 +863,7 @@
         function changeLanguage(lang) {
             preferredLanguage = lang;
             languageNameBadge.textContent = lang === 'en' ? 'English' : 'Español';
-            
+
             // Update modal selection
             const modalLangOptions = settingsModal.querySelectorAll('.language-option');
             modalLangOptions.forEach(opt => {
@@ -913,4 +929,5 @@
         });
     </script>
 </body>
+
 </html>

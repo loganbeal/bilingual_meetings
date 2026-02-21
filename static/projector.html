@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -148,8 +149,15 @@
         }
 
         @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
         }
 
         .status-dot.disconnected {
@@ -197,23 +205,38 @@
 
         .text-display {
             flex: 1;
-            overflow-y: auto;
-            display: block;
-            /*flex-direction: column;*/
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
             gap: 15px;
+            overflow-y: auto;
+            position: relative;
         }
 
         .text-item {
             font-size: 2.5rem;
             line-height: 1.15;
-            /*padding: 20px;
-            border-radius: 10px;
-            /*animation: fadeIn 0.3s ease-in;*/
+            animation: translateUp 0.3s ease-out;
+            transform-origin: bottom;
+            transition: opacity 0.3s ease-in;
+        }
+
+        @keyframes translateUp {
+            from {
+                opacity: 1;
+                transform: translateY(0px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         .text-item.original {
             font-style: italic;
             opacity: 0.95;
+            font-weight: 300;
         }
 
         /*
@@ -223,20 +246,12 @@
             */
 
         .text-item.interim {
-            opacity: 0.7;
+            opacity: 0.5;
             font-style: italic;
+            font-weight: 300;
         }
 
-        @keyframes fadeIn {
-            from {
-                opacity: 0;
-                transform: translateY(10px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
+
 
         /* Scrollbar styling */
         .text-display::-webkit-scrollbar {
@@ -283,6 +298,7 @@
                 transform: translateX(400px);
                 opacity: 0;
             }
+
             to {
                 transform: translateX(0);
                 opacity: 1;
@@ -312,12 +328,13 @@
         }
     </style>
 </head>
+
 <body>
     <!-- Session Selection Screen -->
     <div id="session-selection">
         <h1>🎥 Projector Display</h1>
         <p>Select the session to display</p>
-        
+
         <div class="input-group">
             <label for="session-select">Session:</label>
             <select id="session-select">
@@ -326,11 +343,11 @@
                 <option value="bible_study">Bible Study</option>
                 <option value="custom">Custom Session...</option>
             </select>
-            
+
             <div id="custom-session-input" class="custom-session">
                 <input type="text" id="custom-session-id" placeholder="Enter custom session ID">
             </div>
-            
+
             <button class="btn btn-primary" onclick="connectToSession()">Connect</button>
         </div>
     </div>
@@ -414,7 +431,7 @@
 
         function connectToSession() {
             let sessionId = sessionSelect.value;
-            
+
             if (sessionId === 'custom') {
                 sessionId = customSessionId.value.trim();
                 if (!sessionId) {
@@ -425,11 +442,11 @@
 
             currentSessionId = sessionId;
             sessionNameBadge.textContent = formatSessionName(sessionId);
-            
+
             // Hide selection, show display
             sessionSelection.style.display = 'none';
             displayScreen.classList.add('active');
-            
+
             // Initialize socket connection
             initializeSocket();
         }
@@ -462,7 +479,7 @@
                 console.log('Connected to server');
                 isConnected = true;
                 updateStatus('Connected', true);
-                
+
                 // Join the session room
                 socket.emit('join_session', {
                     session_id: currentSessionId
@@ -506,7 +523,7 @@
                 isConnected = true;
                 updateStatus('Reconnected', true);
                 showMessage('Reconnected successfully', 'success');
-                
+
                 // Rejoin session
                 socket.emit('join_session', {
                     session_id: currentSessionId
@@ -562,16 +579,16 @@
                 historyArray.forEach((historyText, index) => {
                     const textItem = document.createElement('span');
                     textItem.className = 'text-item final';
-                    textItem.textContent = historyText+' ';
-                    
-                    // Fade older items
+                    textItem.textContent = historyText + ' ';
+
+                    // Fade older items slightly but differently if desired
                     const age = historyArray.length - index - 1;
                     textItem.style.opacity = Math.max(0.3, 1 - (age * 0.05));
-                    
+
                     displayElement.appendChild(textItem);
                 });
 
-                // Scroll to bottom
+                // Scroll to bottom (though flex-end naturally does this)
                 displayElement.scrollTop = displayElement.scrollHeight;
             } else {
                 // Update interim text (last item)
@@ -624,7 +641,7 @@
                     document.exitFullscreen();
                 }
             }
-            
+
             // Escape: Exit to session selection
             if (e.key === 'Escape' && document.fullscreenElement) {
                 document.exitFullscreen();
@@ -637,4 +654,5 @@
         console.log('Projector Display Client initialized');
     </script>
 </body>
+
 </html>

@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -187,8 +188,15 @@
         }
 
         @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
         }
 
         .audio-visualizer {
@@ -281,6 +289,7 @@
         }
     </style>
 </head>
+
 <body>
     <div class="container">
         <h1>🎤 Audio Streamer</h1>
@@ -288,7 +297,8 @@
 
         <div id="setup-panel">
             <div class="alert alert-info">
-                This tool allows you to stream audio from your device's microphone to start a new translation session. Perfect for breakout rooms or secondary meetings.
+                This tool allows you to stream audio from your device's microphone to start a new translation session.
+                Perfect for breakout rooms or secondary meetings.
             </div>
 
             <div class="input-group">
@@ -453,8 +463,8 @@
                 return;
             }
 
-            if (!/^[a-zA-Z0-9_]+$/.test(sessionId)) {
-                showAlert('Session ID can only contain letters, numbers, and underscores', 'error');
+            if (!/^[a-zA-Z0-9_\-]+$/.test(sessionId)) {
+                showAlert('Session ID can only contain letters, numbers, hyphens, and underscores', 'error');
                 return;
             }
 
@@ -478,11 +488,11 @@
                     if (data.success) {
                         currentSessionId = sessionId;
                         sessionName.textContent = sessionId;
-                        
+
                         // Switch to streaming panel
                         setupPanel.style.display = 'none';
                         streamingPanel.style.display = 'block';
-                        
+
                         showAlert('Session created successfully!', 'info');
                     } else {
                         showAlert('Failed to create session: ' + data.message, 'error');
@@ -528,7 +538,7 @@
                     if (!isStreaming) return;
 
                     const inputData = event.inputBuffer.getChannelData(0);
-                    
+
                     // Convert Float32Array to Int16Array (PCM)
                     const pcmData = new Int16Array(inputData.length);
                     for (let i = 0; i < inputData.length; i++) {
@@ -638,7 +648,7 @@
         function initializeSocket() {
             return new Promise((resolve, reject) => {
                 console.log('Connecting to server...');
-                
+
                 socket = io({
                     transports: ['websocket', 'polling'],
                     reconnection: true,
@@ -680,14 +690,14 @@
                 const start = index * sampleSize;
                 const end = start + sampleSize;
                 const slice = audioData.slice(start, end);
-                
+
                 // Calculate RMS (Root Mean Square) for this segment
                 let sum = 0;
                 for (let i = 0; i < slice.length; i++) {
                     sum += slice[i] * slice[i];
                 }
                 const rms = Math.sqrt(sum / slice.length);
-                
+
                 // Convert to height (0-50px)
                 const height = Math.min(50, rms * 200);
                 bar.style.height = height + 'px';
@@ -715,7 +725,7 @@
             const alert = document.createElement('div');
             alert.className = `alert alert-${type}`;
             alert.textContent = message;
-            
+
             const container = document.querySelector('.container');
             container.insertBefore(alert, container.firstChild);
 
@@ -743,4 +753,5 @@
         });
     </script>
 </body>
+
 </html>

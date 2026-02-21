@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -141,8 +142,69 @@
         }
 
         @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        .controls-section {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            padding: 30px;
+            margin-top: 30px;
+            text-align: center;
+            backdrop-filter: blur(10px);
+        }
+
+        .controls-section h3 {
+            font-size: 1.5rem;
+            margin-bottom: 20px;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border-radius: 8px;
+            border: none;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin: 0 10px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-start {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .btn-start:hover {
+            background: #45a049;
+            transform: translateY(-2px);
+        }
+
+        .btn-stop {
+            background: #f44336;
+            color: white;
+        }
+
+        .btn-stop:hover {
+            background: #da190b;
+            transform: translateY(-2px);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
         }
 
         footer {
@@ -181,6 +243,7 @@
         }
     </style>
 </head>
+
 <body>
     <div class="container">
         <header>
@@ -193,7 +256,8 @@
                 <div class="card-icon">🎥</div>
                 <div class="card-title">Projector Display</div>
                 <div class="card-description">
-                    Large dual-language display for projection screens. Shows both English and Spanish translations side-by-side.
+                    Large dual-language display for projection screens. Shows both English and Spanish translations
+                    side-by-side.
                 </div>
             </a>
 
@@ -201,7 +265,8 @@
                 <div class="card-icon">📱</div>
                 <div class="card-title">Personal Device</div>
                 <div class="card-description">
-                    Mobile-friendly view for personal phones or tablets. Choose your preferred language for focused viewing.
+                    Mobile-friendly view for personal phones or tablets. Choose your preferred language for focused
+                    viewing.
                 </div>
             </a>
 
@@ -209,7 +274,8 @@
                 <div class="card-icon">🎤</div>
                 <div class="card-title">Audio Streamer</div>
                 <div class="card-description">
-                    Stream audio from a browser to start new translation sessions for breakout rooms or secondary meetings.
+                    Stream audio from a browser to start new translation sessions for breakout rooms or secondary
+                    meetings.
                 </div>
             </a>
         </div>
@@ -235,12 +301,24 @@
             </div>
         </div>
 
+        <div class="controls-section">
+            <h3>Main Session Controls</h3>
+            <p style="margin-bottom: 20px; opacity: 0.8;">Start or stop translation for the main church service.</p>
+            <button id="btn-start-main" class="btn btn-start" onclick="startMainSession()">
+                <span>▶️</span> Start Main Session
+            </button>
+            <button id="btn-stop-main" class="btn btn-stop" onclick="stopMainSession()">
+                <span>⏹️</span> Stop Main Session
+            </button>
+        </div>
+
         <div class="info-box">
             <h3>📖 Quick Start Guide</h3>
             <p>
                 <strong>1. Main Service:</strong> The "main" session auto-starts when the server launches.<br>
                 <strong>2. Connect Displays:</strong> Open projector or personal views on any device on the network.<br>
-                <strong>3. Secondary Meetings:</strong> Use the Audio Streamer to create new sessions (e.g., youth, bible_study).<br>
+                <strong>3. Secondary Meetings:</strong> Use the Audio Streamer to create new sessions (e.g., youth,
+                bible_study).<br>
                 <strong>4. Join Sessions:</strong> Each client can select which session to listen to.
             </p>
         </div>
@@ -272,6 +350,61 @@
             }
         }
 
+        // ====================================================================
+        // Session Controls
+        // ====================================================================
+        async function startMainSession() {
+            const btn = document.getElementById('btn-start-main');
+            btn.disabled = true;
+            btn.innerHTML = '<span>⏳</span> Starting...';
+
+            try {
+                const response = await fetch('/api/sessions/main/start', { method: 'POST' });
+                const result = await response.json();
+
+                if (result.success) {
+                    alert('Main session started successfully.');
+                    checkSystemStatus();
+                } else {
+                    alert('Failed to start: ' + result.error);
+                }
+            } catch (error) {
+                console.error('Error starting session:', error);
+                alert('Error connecting to server.');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<span>▶️</span> Start Main Session';
+            }
+        }
+
+        async function stopMainSession() {
+            if (!confirm("Are you sure you want to stop the main translation session?")) {
+                return;
+            }
+
+            const btn = document.getElementById('btn-stop-main');
+            btn.disabled = true;
+            btn.innerHTML = '<span>⏳</span> Stopping...';
+
+            try {
+                const response = await fetch('/api/sessions/main/stop', { method: 'POST' });
+                const result = await response.json();
+
+                if (result.success) {
+                    alert('Main session stopped.');
+                    checkSystemStatus();
+                } else {
+                    alert('Failed to stop: ' + (result.error || 'Unknown error'));
+                }
+            } catch (error) {
+                console.error('Error stopping session:', error);
+                alert('Error connecting to server.');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<span>⏹️</span> Stop Main Session';
+            }
+        }
+
         // Display current server URL
         const serverUrl = window.location.origin;
         document.getElementById('server-url').textContent = serverUrl;
@@ -281,4 +414,5 @@
         setInterval(checkSystemStatus, 5000);
     </script>
 </body>
+
 </html>
