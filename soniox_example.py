@@ -1,4 +1,5 @@
 import json
+import pyaudio
 import os
 import threading
 import time
@@ -7,6 +8,10 @@ from typing import Optional
 
 from websockets import ConnectionClosedOK
 from websockets.sync.client import connect
+
+from dotenv import load_dotenv 
+import re 
+load_dotenv() 
 
 SONIOX_WEBSOCKET_URL = "wss://stt-rt.soniox.com/transcribe-websocket"
 
@@ -60,7 +65,7 @@ def get_config(api_key: str, audio_format: str, translation: str) -> dict:
     elif audio_format == "pcm_s16le":
         # Example of a raw audio format; Soniox supports many others as well.
         config["audio_format"] = "pcm_s16le"
-        config["sample_rate"] = 16000
+        config["sample_rate"] = 48000
         config["num_channels"] = 1
     else:
         raise ValueError(f"Unsupported audio_format: {audio_format}")
@@ -77,19 +82,41 @@ def get_config(api_key: str, audio_format: str, translation: str) -> dict:
 
 
 # Read the audio file and send its bytes to the websocket.
-def stream_audio(audio_path: str, ws) -> None:
-    with open(audio_path, "rb") as fh:
+def stream_audio(unused_path: str, ws) -> None:
+    p = pyaudio.PyAudio()
+    
+    # Configuration for your USB Mic
+    CHUNK = 3840  # Matching your original buffer size
+    FORMAT = pyaudio.paInt16
+    CHANNELS = 1
+    RATE = 48000
+    DEVICE_INDEX = 1  # Your JieLi USB Audio index
+
+    try:
+        stream = p.open(
+            format=FORMAT,
+            channels=CHANNELS,
+            rate=RATE,
+            input=True,
+            input_device_index=DEVICE_INDEX,
+            frames_per_buffer=CHUNK
+        )
+        
+        print(f"--- Microphone Live (Index {DEVICE_INDEX}) ---")
+
         while True:
-            data = fh.read(3840)
-            if len(data) == 0:
-                break
+            # Read raw bytes from the microphone
+            data = stream.read(CHUNK, exception_on_overflow=False)
             ws.send(data)
-            # Sleep for 120 ms to simulate real-time streaming.
-            time.sleep(0.120)
-
-    # Empty string signals end-of-audio to the server
-    ws.send("")
-
+            # No need to sleep here; stream.read() naturally blocks to real-time
+            
+    except Exception as e:
+        print(f"Microphone Error: {e}")
+    finally:
+        ws.send("") # End signal
+        stream.stop_stream()
+        stream.close()
+        p.terminate()
 
 # Convert tokens into a readable transcript.
 def render_tokens(final_tokens: list[dict], non_final_tokens: list[dict]) -> str:
