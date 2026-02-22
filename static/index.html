@@ -302,14 +302,13 @@
         </div>
 
         <div class="controls-section">
-            <h3>Main Session Controls</h3>
-            <p style="margin-bottom: 20px; opacity: 0.8;">Start or stop translation for the main church service.</p>
-            <button id="btn-start-main" class="btn btn-start" onclick="startMainSession()">
-                <span>▶️</span> Start Main Session
-            </button>
-            <button id="btn-stop-main" class="btn btn-stop" onclick="stopMainSession()">
-                <span>⏹️</span> Stop Main Session
-            </button>
+            <h3>Active Session Controls</h3>
+            <p style="margin-bottom: 20px; opacity: 0.8;">Manage active translation sessions.</p>
+            <div id="session-controls-container">
+                <button id="btn-start-main" class="btn btn-start" onclick="startMainSession()">
+                    <span>▶️</span> Start Main Session
+                </button>
+            </div>
         </div>
 
         <div class="info-box">
@@ -339,8 +338,14 @@
                 const data = await response.json();
 
                 document.getElementById('server-status').textContent = data.status === 'healthy' ? 'Online' : 'Offline';
-                document.getElementById('active-sessions').textContent = data.active_sessions || 0;
+                if (data.session_names && data.session_names.length > 0) {
+                    document.getElementById('active-sessions').innerHTML = '<span style="font-size: 1.2rem">' + data.session_names.join('<br>') + '</span>';
+                } else {
+                    document.getElementById('active-sessions').textContent = 'None';
+                }
                 document.getElementById('testing-mode').textContent = data.testing_mode ? 'Yes' : 'No';
+
+                updateControls(data.session_names || []);
 
             } catch (error) {
                 console.error('Error checking system status:', error);
@@ -359,7 +364,11 @@
             btn.innerHTML = '<span>⏳</span> Starting...';
 
             try {
-                const response = await fetch('/api/sessions/main/start', { method: 'POST' });
+                const response = await fetch('/api/sessions/main', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ use_local_audio: true })
+                });
                 const result = await response.json();
 
                 if (result.success) {
@@ -377,31 +386,49 @@
             }
         }
 
-        async function stopMainSession() {
-            if (!confirm("Are you sure you want to stop the main translation session?")) {
+        function updateControls(sessionNames) {
+            const container = document.getElementById('session-controls-container');
+            if (!container) return;
+            container.innerHTML = '';
+
+            const mainActive = sessionNames.includes('main');
+
+            if (!mainActive) {
+                const startBtn = document.createElement('button');
+                startBtn.className = 'btn btn-start';
+                startBtn.id = 'btn-start-main';
+                startBtn.innerHTML = '<span>▶️</span> Start Main Session';
+                startBtn.onclick = startMainSession;
+                container.appendChild(startBtn);
+            }
+
+            sessionNames.forEach(sessionName => {
+                const stopBtn = document.createElement('button');
+                stopBtn.className = 'btn btn-stop';
+                stopBtn.innerHTML = `<span>⏹️</span> Stop ${sessionName}`;
+                stopBtn.onclick = () => stopSession(sessionName);
+                container.appendChild(stopBtn);
+            });
+        }
+
+        async function stopSession(sessionName) {
+            if (!confirm(`Are you sure you want to stop the ${sessionName} translation session?`)) {
                 return;
             }
 
-            const btn = document.getElementById('btn-stop-main');
-            btn.disabled = true;
-            btn.innerHTML = '<span>⏳</span> Stopping...';
-
             try {
-                const response = await fetch('/api/sessions/main/stop', { method: 'POST' });
+                const response = await fetch(`/api/sessions/${sessionName}`, { method: 'DELETE' });
                 const result = await response.json();
 
                 if (result.success) {
-                    alert('Main session stopped.');
+                    alert(`${sessionName} session stopped.`);
                     checkSystemStatus();
                 } else {
-                    alert('Failed to stop: ' + (result.error || 'Unknown error'));
+                    alert('Failed to stop: ' + (result.error || result.message || 'Unknown error'));
                 }
             } catch (error) {
                 console.error('Error stopping session:', error);
                 alert('Error connecting to server.');
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = '<span>⏹️</span> Stop Main Session';
             }
         }
 

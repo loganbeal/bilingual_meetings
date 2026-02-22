@@ -8,6 +8,9 @@ Author: Church Translation System
 License: MIT
 """
 
+import eventlet
+eventlet.monkey_patch()
+
 import os
 import sys
 import time
@@ -303,11 +306,10 @@ class SonioxClient:
                         "Alma",
                         "Mosiah",
                         "Lamanites",
-                        "Nephites",
-                        "Nauvoo",
-                        "Deseret"
+                        "Nephites"
                     ],
                     "translation_terms": [
+                        # English -> Spanish
                         {"source": "Stake", "target": "Estaca"},
                         {"source": "Ward", "target": "Barrio"},
                         {"source": "Ward Council", "target": "Consejo de barrio"},
@@ -365,10 +367,70 @@ class SonioxClient:
                         {"source": "Pearl of Great Price", "target": "Perla de Gran Precio"},
                         {"source": "Come, Follow Me", "target": "Ven, sígueme"},
                         {"source": "Ministering", "target": "Ministración"},
-                        {"source": "Patriarchal Blessing", "target": "Bendición Patriarcal"}
-                    ]
+                        {"source": "Patriarchal Blessing", "target": "Bendición Patriarcal"},
+                        
+                        # Spanish -> English
+                        {"source": "Estaca", "target": "Stake"},
+                        {"source": "Barrio", "target": "Ward"},
+                        {"source": "Consejo de barrio", "target": "Ward Council"},
+                        {"source": "Consejo de estaca", "target": "Stake Council"},
+                        {"source": "Rama", "target": "Branch"},
+                        {"source": "Distrito", "target": "District"},
+                        {"source": "Santa Cena", "target": "Sacrament"},
+                        {"source": "Reunión Sacramental", "target": "Sacrament Meeting"},
+                        {"source": "Sociedad de Socorro", "target": "Relief Society"},
+                        {"source": "Quórum de élderes", "target": "Elders Quorum"},
+                        {"source": "Primaria", "target": "Primary"},
+                        {"source": "Escuela Dominical", "target": "Sunday School"},
+                        {"source": "Hombres Jóvenes", "target": "Young Men"},
+                        {"source": "Mujeres Jóvenes", "target": "Young Women"},
+                        {"source": "Obispo", "target": "Bishop"},
+                        {"source": "Obispado", "target": "Bishopric"},
+                        {"source": "Presidente de estaca", "target": "Stake President"},
+                        {"source": "Sumo Consejo", "target": "High Council"},
+                        {"source": "Sacerdocio", "target": "Priesthood"},
+                        {"source": "Sacerdocio Aarónico", "target": "Aaronic Priesthood"},
+                        {"source": "Sacerdocio de Melquisedec", "target": "Melchizedek Priesthood"},
+                        {"source": "Diácono", "target": "Deacon"},
+                        {"source": "Maestro", "target": "Teacher"},
+                        {"source": "Presbítero", "target": "Priest"},
+                        {"source": "Élder", "target": "Elder"},
+                        {"source": "Sumo Sacerdote", "target": "High Priest"},
+                        {"source": "Setenta", "target": "Seventy"},
+                        {"source": "Apóstol", "target": "Apostle"},
+                        {"source": "Profeta", "target": "Prophet"},
+                        {"source": "Conferencia General", "target": "General Conference"},
+                        {"source": "Investidura", "target": "Endowment"},
+                        {"source": "Sellamiento", "target": "Sealing"},
+                        {"source": "Diezmo", "target": "Tithing"},
+                        {"source": "Ofrenda de ayuno", "target": "Fast Offering"},
+                        {"source": "Domingo de ayuno", "target": "Fast Sunday"},
+                        {"source": "Testimonio", "target": "Testimony"},
+                        {"source": "Reunión de testimonios", "target": "Testimony Meeting"},
+                        {"source": "Llamamiento", "target": "Calling"},
+                        {"source": "Relevo", "target": "Release"},
+                        {"source": "Sostenimiento", "target": "Sustaining"},
+                        {"source": "Apartar", "target": "Set apart"},
+                        {"source": "Evangelio", "target": "Gospel"},
+                        {"source": "Expiación", "target": "Atonement"},
+                        {"source": "Convenio", "target": "Covenant"},
+                        {"source": "Ordenanza", "target": "Ordinance"},
+                        {"source": "Templo", "target": "Temple"},
+                        {"source": "Centro de reuniones", "target": "Meetinghouse"},
+                        {"source": "Capilla", "target": "Chapel"},
+                        {"source": "Historia Familiar", "target": "Family History"},
+                        {"source": "Misionero", "target": "Missionary"},
+                        {"source": "Seminario", "target": "Seminary"},
+                        {"source": "Instituto", "target": "Institute"},
+                        {"source": "Libro de Mormón", "target": "Book of Mormon"},
+                        {"source": "Doctrina y Convenios", "target": "Doctrine and Covenants"},
+                        {"source": "Perla de Gran Precio", "target": "Pearl of Great Price"},
+                        {"source": "Ven, sígueme", "target": "Come, Follow Me"},
+                        {"source": "Ministración", "target": "Ministering"},
+                        {"source": "Bendición Patriarcal", "target": "Patriarchal Blessing"}
+                        ]
+                    }
                 }
-            }
                 
                 # Connect to WebSocket
                 with connect(SONIOX_WEBSOCKET_URL) as ws:
@@ -412,121 +474,128 @@ class SonioxClient:
                     
                     # Process responses
                     # Track tokens by language for aggregation
-                    current_original_tokens = []
-                    current_translated_tokens = []
                     current_language = None
+                    last_final_orig = None
+                    last_final_trans = None
                 
-                try:
-                    while not self.should_stop.is_set():
-                        try:
-                            message = ws.recv(timeout=0.1)
-                            response = json.loads(message)
-                            
-                            # Check for errors
-                            if response.get('error_code') is not None:
-                                error_msg = f"{response['error_code']}: {response.get('error_message', 'Unknown error')}"
-                                logger.error(f"[{self.session_id}] Soniox error: {error_msg}")
-                                if hasattr(self, '_broadcast_error'):
-                                    self._broadcast_error(error_msg)
-                                break
-                            # Process tokens
-                            tokens = response.get('tokens', [])
-                            if tokens:
-                                self.results_received += 1
+                    try:
+                        while not self.should_stop.is_set():
+                            try:
+                                message = ws.recv(timeout=0.1)
+                                response = json.loads(message)
                                 
-                                # Separate original and translated tokens
-                                original_tokens = []
-                                translated_tokens = []
-                                
-                                for token in tokens:
-                                    text = token.get('text', '')
-                                    is_final = token.get('is_final', False)
-                                    language = token.get('language', 'en')
-                                    translation_status = token.get('translation_status', 'none')
+                                # Check for errors
+                                if response.get('error_code') is not None:
+                                    error_msg = f"{response['error_code']}: {response.get('error_message', 'Unknown error')}"
+                                    logger.error(f"[{self.session_id}] Soniox error: {error_msg}")
+                                    if hasattr(self, '_broadcast_error'):
+                                        self._broadcast_error(error_msg)
+                                    break
+                                # Process tokens
+                                tokens = response.get('tokens', [])
+                                if tokens:
+                                    self.results_received += 1
                                     
-                                    if not text or text in ['<end>', '<fin>']:
+                                    # Separate original and translated tokens
+                                    original_tokens = []
+                                    translated_tokens = []
+                                    
+                                    logger.info(f"[{self.session_id}] Tokens: {tokens}")
+                                    for token in tokens:
+                                        text = token.get('text', '')
+                                        is_final = token.get('is_final', False)
+                                        language = token.get('language', 'en')
+                                        translation_status = token.get('translation_status', 'none')
+                                        
+                                        if not text or text in ['<end>', '<fin>']:
+                                            continue
+                                        
+                                        if translation_status == 'translation':
+                                            translated_tokens.append(token)
+                                        elif translation_status == 'original' or translation_status == 'none':
+                                            original_tokens.append(token)
+                                            if language:
+                                                current_language = language
+                                    
+                                    # Determine if the phrase is fully final
+                                    has_orig_final = any(t.get('is_final') for t in original_tokens)
+                                    has_trans_final = any(t.get('is_final') for t in translated_tokens)
+                                    
+                                    is_fully_final = False
+                                    if original_tokens and translated_tokens:
+                                        is_fully_final = has_orig_final and has_trans_final
+                                    elif original_tokens:
+                                        is_fully_final = has_orig_final
+                                    elif translated_tokens:
+                                        is_fully_final = has_trans_final
+                                    
+                                    # Build text from tokens by concatenating token texts
+                                    # (tokens may already contain leading/trailing spaces).
+                                    original_text = ''.join(t.get('text', '') for t in original_tokens if t.get('text'))
+                                    translated_text = ''.join(t.get('text', '') for t in translated_tokens if t.get('text'))
+    
+                                    # Clean up common spacing/tokenization artifacts:
+                                    def clean_text(s: str) -> str:
+                                        if not s:
+                                            return s
+                                        #remove all vulgarities
+                                        s = re.sub(r'\b(fuck|shit|damn|bastard|penis|ass|bitch|dick|piss)\b', '#$%!', s, flags=re.IGNORECASE)
+                                        #remove all spanish vulgarities
+                                        s = re.sub(r'\b(joder|mierda|maldita sea|cabron|pene|culo|perra|polla|meada)\b', '#$%!', s, flags=re.IGNORECASE)
+                                        return s.strip()
+    
+                                    original_text = clean_text(original_text)
+                                    translated_text = clean_text(translated_text)
+                                    
+                                    # Broadcast if we have text
+                                    if original_text or translated_text:
+                                        if is_fully_final:
+                                            if last_final_orig == original_text and last_final_trans == translated_text:
+                                                pass # Skip identical consecutive final broadcasts to prevent duplicate history
+                                            else:
+                                                last_final_orig = original_text
+                                                last_final_trans = translated_text
+                                                self._broadcast_translation(
+                                                    original_lang=current_language or 'en',
+                                                    original_text=original_text,
+                                                    translated_text=translated_text,
+                                                    is_final=True
+                                                )
+                                        else:
+                                            # If we broadcast a non-final text, a new phrase is building
+                                            last_final_orig = None
+                                            last_final_trans = None
+                                            self._broadcast_translation(
+                                                original_lang=current_language or 'en',
+                                                original_text=original_text,
+                                                translated_text=translated_text,
+                                                is_final=False
+                                            )
+                                
+                                # Check if session is finished
+                                if response.get('finished'):
+                                    logger.info(f"[{self.session_id}] Soniox session finished")
+                                    break
+                                    
+                            except TimeoutError:
+                                        # Normal timeout, continue loop
                                         continue
-                                    
-                                    if translation_status == 'translation':
-                                        translated_tokens.append(token)
-                                    elif translation_status == 'original' or translation_status == 'none':
-                                        original_tokens.append(token)
-                                        if language:
-                                            current_language = language
-                                
-                                # Update current tokens
-                                # For non-final, we accumulate; for final, we use as-is
-                                has_final = any(t.get('is_final') for t in tokens)
-                                
-                                if has_final:
-                                    # Update with final tokens
-                                    for token in original_tokens:
-                                        if token.get('is_final'):
-                                            current_original_tokens.append(token)
-                                    for token in translated_tokens:
-                                        if token.get('is_final'):
-                                            current_translated_tokens.append(token)
-                                
-                                # Build text from tokens by concatenating token texts
-                                # (tokens may already contain leading/trailing spaces).
-                                original_text = ''.join(t.get('text', '') for t in original_tokens if t.get('text'))
-                                translated_text = ''.join(t.get('text', '') for t in translated_tokens if t.get('text'))
-
-                                # Clean up common spacing/tokenization artifacts:
-                                #  - Collapse multiple whitespace
-                                #  - Remove spaces before punctuation
-                                #  - Remove stray spaces around apostrophes
-                                def clean_text(s: str) -> str:
-                                    if not s:
-                                        return s
-                                    #remove all vulgarities
-                                    s = re.sub(r'\b(fuck|shit|damn|bastard|penis|ass|bitch|dick|piss)\b', '#$%!', s, flags=re.IGNORECASE)
-                                    #remove all spanish vulgarities
-                                    s = re.sub(r'\b(joder|mierda|maldita sea|cabron|pene|culo|perra|polla|meada)\b', '#$%!', s, flags=re.IGNORECASE)
-                                    return s.strip()
-
-                                original_text = clean_text(original_text)
-                                translated_text = clean_text(translated_text)
-                                
-                                # Broadcast if we have text
-                                if original_text or translated_text:
-                                    self._broadcast_translation(
-                                        original_lang=current_language or 'en',
-                                        original_text=original_text,
-                                        translated_text=translated_text,
-                                        is_final=has_final
-                                    )
-                                
-                                # Clear non-final tokens after sending final
-                                if has_final:
-                                    # Reset for next phrase
-                                    current_original_tokens = []
-                                    current_translated_tokens = []
-                            
-                            # Check if session is finished
-                            if response.get('finished'):
-                                logger.info(f"[{self.session_id}] Soniox session finished")
-                                break
-                                
-                        except TimeoutError:
-                            # Normal timeout, continue loop
-                            continue
-                except ConnectionClosedOK:
-                    logger.info(f"[{self.session_id}] Soniox connection closed normally. Restarting...")
-                except ConnectionClosedError as e:
-                    logger.error(f"[{self.session_id}] Soniox connection closed with error: {e}. Reconnecting...")
-                    if hasattr(self, '_broadcast_error'):
-                        self._broadcast_error(f"Connection error: {e}. Reconnecting...")
-                except Exception as e:
-                    logger.error(f"[{self.session_id}] Soniox connection exception: {e}")
+                    except ConnectionClosedOK:
+                        logger.info(f"[{self.session_id}] Soniox connection closed normally. Restarting...")
+                    except ConnectionClosedError as e:
+                        logger.error(f"[{self.session_id}] Soniox connection closed with error: {e}. Reconnecting...")
+                        if hasattr(self, '_broadcast_error'):
+                            self._broadcast_error(f"Connection error: {e}. Reconnecting...")
+                    except Exception as e:
+                        logger.error(f"[{self.session_id}] Soniox connection exception: {e}")
+                        
+                    # Wait for audio thread to finish
+                    audio_thread.join(timeout=2)
                     
-                # Wait for audio thread to finish
-                audio_thread.join(timeout=2)
-                
-                if not self.should_stop.is_set():
-                    # Briefly wait before attempting to reconnect
-                    logger.info(f"[{self.session_id}] Waiting 2 seconds before reconnecting...")
-                    time.sleep(2)
+                    if not self.should_stop.is_set():
+                        # Briefly wait before attempting to reconnect
+                        logger.info(f"[{self.session_id}] Waiting 2 seconds before reconnecting...")
+                        time.sleep(2)
                     
             except Exception as e:
                 logger.error(f"[{self.session_id}] Soniox worker error: {e}", exc_info=True)
@@ -861,7 +930,7 @@ def create_session_http(session_id):
     Create a new session via HTTP.
     Body: { "use_local_audio": bool, "testing_mode": bool }
     """
-    data = request.get_json() or {}
+    data = request.get_json(silent=True) or {}
     use_local_audio = data.get('use_local_audio', False)
     testing_mode = data.get('testing_mode', Config.TESTING_MODE)
     
@@ -890,6 +959,7 @@ def health():
     return jsonify({
         'status': 'healthy',
         'active_sessions': len(session_manager.sessions),
+        'session_names': list(session_manager.sessions.keys()),
         'testing_mode': Config.TESTING_MODE,
         'soniox_enabled': Config.SONIOX_ENABLED
     })

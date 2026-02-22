@@ -264,9 +264,6 @@
             flex: 1;
             margin-bottom: 15px;
             overflow-y: auto;
-            display: flex;
-            flex-direction: column;
-            justify-content: flex-end;
         }
 
         .translation-line {
@@ -809,8 +806,12 @@
                 metaDiv.querySelector('#timestamp-text').textContent = new Date().toLocaleTimeString();
             }
 
-            // Scroll to bottom of lines
-            linesDiv.scrollTop = linesDiv.scrollHeight;
+            // Scroll to bottom of lines smoothly
+            const scrollOptions = {
+                top: linesDiv.scrollHeight,
+                behavior: 'smooth'
+            };
+            linesDiv.scrollTo(scrollOptions);
         }
 
         function createTranslationItem(text, isInterim, isOriginal, originalLang) {

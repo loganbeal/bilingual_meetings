@@ -205,12 +205,11 @@
 
         .text-display {
             flex: 1;
-            display: flex;
-            flex-direction: column;
-            justify-content: flex-end;
-            gap: 15px;
+            display: block;
+            /* Change back to block for standard scrolling behavior with slowScroll */
             overflow-y: auto;
             position: relative;
+            padding: 10px;
         }
 
         .text-item {
@@ -568,31 +567,30 @@
             if (!text) return;
 
             if (isFinal) {
-                // Add to history
+                // Remove interim text
+                const existingInterim = displayElement.querySelector('.interim');
+                if (existingInterim) {
+                    existingInterim.remove();
+                }
+
+                // Add to history array
                 historyArray.push(text);
                 if (historyArray.length > MAX_HISTORY) {
                     historyArray.shift();
+                    // Remove first final item from DOM to match history array
+                    const firstFinal = displayElement.querySelector('.final');
+                    if (firstFinal) firstFinal.remove();
                 }
 
-                // Clear display and show all history
-                displayElement.innerHTML = '';
-                historyArray.forEach((historyText, index) => {
-                    const textItem = document.createElement('span');
-                    textItem.className = 'text-item final';
-                    textItem.textContent = historyText + ' ';
+                // Create and append final item
+                const textItem = document.createElement('span');
+                textItem.className = 'text-item final';
+                textItem.textContent = text + ' ';
+                displayElement.appendChild(textItem);
 
-                    // Fade older items slightly but differently if desired
-                    const age = historyArray.length - index - 1;
-                    textItem.style.opacity = Math.max(0.3, 1 - (age * 0.05));
-
-                    displayElement.appendChild(textItem);
-                });
-
-                // Scroll to bottom (though flex-end naturally does this)
-                displayElement.scrollTop = displayElement.scrollHeight;
             } else {
-                // Update interim text (last item)
-                const existingInterim = displayElement.querySelector('.interim');
+                // Update or create interim text
+                let existingInterim = displayElement.querySelector('.interim');
                 if (existingInterim) {
                     existingInterim.textContent = text;
                 } else {
@@ -602,6 +600,34 @@
                     displayElement.appendChild(textItem);
                 }
             }
+
+            // Scroll to bottom (though flex-end naturally does this)
+            // Cancel any existing animation to prevent jumping
+            if (displayElement._scrollAnimationId) {
+                cancelAnimationFrame(displayElement._scrollAnimationId);
+            }
+
+            const startPosition = displayElement.scrollTop;
+            const targetPosition = displayElement.scrollHeight;
+            const duration = 20000; // Slower duration in ms
+            let startTime = null;
+
+            function slowScroll(currentTime) {
+                if (startTime === null) startTime = currentTime;
+                const timeElapsed = currentTime - startTime;
+                const progress = Math.min(timeElapsed / duration, 1);
+
+                // Ease out quadratic function
+                const ease = progress * (2 - progress);
+                displayElement.scrollTop = startPosition + (targetPosition - startPosition) * ease;
+
+                if (timeElapsed < duration) {
+                    displayElement._scrollAnimationId = requestAnimationFrame(slowScroll);
+                } else {
+                    displayElement._scrollAnimationId = null;
+                }
+            }
+            displayElement._scrollAnimationId = requestAnimationFrame(slowScroll);
         }
 
         // ====================================================================
