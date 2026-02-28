@@ -23,7 +23,7 @@ from typing import Dict, Optional, Any
 from collections import defaultdict
 
 import pyaudio
-from flask import Flask, render_template, send_from_directory, jsonify, request
+from flask import Flask, render_template, send_from_directory, jsonify, request, redirect
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from flask_cors import CORS
 
@@ -66,12 +66,21 @@ class Config:
     
     # Server Configuration
     HOST = '0.0.0.0'
-    PORT = 5000
+    PORT = 5000        # HTTP - used by projector, personal, index
+    PORT_HTTPS = 5443  # HTTPS - used by audio streamer (requires microphone)
     DEBUG = os.getenv('DEBUG', 'false').lower() == 'true'
     
     # Session Configuration
     MAX_SESSIONS = 10
     DEFAULT_SESSION_DURATION = 90  # minutes
+
+    # Translation Language Configuration
+    # Language A is always English. Language B is configurable.
+    LANGUAGE_A = 'en'
+    LANGUAGE_B = os.getenv('LANGUAGE_B', 'es')  # Default: Spanish
+
+    # Supported translation languages (Soniox 2-letter codes)
+    SUPPORTED_LANGUAGES = ['zh', 'en', 'fr', 'it', 'ko', 'pt', 'es', 'vi']
 
 
 # ============================================================================
@@ -84,7 +93,8 @@ class SonioxClient:
     Handles audio streaming, receives translations, and broadcasts to clients.
     """
     
-    def __init__(self, session_id: str, socketio_instance, testing_mode: bool = False):
+    def __init__(self, session_id: str, socketio_instance, testing_mode: bool = False,
+                 language_b: str = 'es'):
         """
         Initialize Soniox client for a specific session.
         
@@ -92,10 +102,12 @@ class SonioxClient:
             session_id: Unique identifier for this translation session
             socketio_instance: Flask-SocketIO instance for broadcasting
             testing_mode: If True, generates dummy translations instead of using API
+            language_b: The non-English translation language (e.g. 'es', 'zh', 'fr')
         """
         self.session_id = session_id
         self.socketio = socketio_instance
         self.testing_mode = testing_mode
+        self.language_b = language_b
         
         # Thread-safe audio queue
         self.audio_queue = queue.Queue(maxsize=1000)
@@ -111,7 +123,7 @@ class SonioxClient:
         self.bytes_sent = 0
         self.results_received = 0
         
-        logger.info(f"[{self.session_id}] SonioxClient initialized (testing_mode={testing_mode})")
+        logger.info(f"[{self.session_id}] SonioxClient initialized (testing_mode={testing_mode}, language_b={language_b})")
     
     def start(self):
         """Start the Soniox client worker thread"""
@@ -276,14 +288,14 @@ class SonioxClient:
                     "model": "stt-rt-v4",
                     
                     # Enable language identification and hints
-                    "language_hints": ["en", "es"],
+                    "language_hints": [Config.LANGUAGE_A, self.language_b],
                     "enable_language_identification": True,
                     
-                    # Two-way translation between English and Spanish
+                    # Two-way translation between English and the configured language
                     "translation": {
                         "type": "two_way",
-                        "language_a": "en",
-                        "language_b": "es",
+                        "language_a": Config.LANGUAGE_A,
+                        "language_b": self.language_b,
                     },
                     
                     # Audio format - raw PCM 16-bit
@@ -753,8 +765,8 @@ class SessionManager:
         
         logger.info("SessionManager initialized")
     
-    def create_session(self, session_id: str, use_local_audio: bool = False, 
-                      testing_mode: bool = False) -> bool:
+    def create_session(self, session_id: str, use_local_audio: bool = False,
+                      testing_mode: bool = False, language_b: Optional[str] = None) -> bool:
         """
         Create a new translation session.
         
@@ -762,10 +774,14 @@ class SessionManager:
             session_id: Unique identifier for the session
             use_local_audio: If True, capture from local microphone
             testing_mode: If True, use dummy translations
+            language_b: Translation language (defaults to Config.LANGUAGE_B)
             
         Returns:
             True if session created successfully, False otherwise
         """
+        if language_b is None:
+            language_b = Config.LANGUAGE_B
+
         with self.lock:
             if session_id in self.sessions:
                 logger.warning(f"Session '{session_id}' already exists")
@@ -780,7 +796,8 @@ class SessionManager:
                 soniox_client = SonioxClient(
                     session_id=session_id,
                     socketio_instance=self.socketio,
-                    testing_mode=testing_mode
+                    testing_mode=testing_mode,
+                    language_b=language_b
                 )
                 soniox_client.start()
                 
@@ -791,6 +808,7 @@ class SessionManager:
                     'audio_capture': None,
                     'use_local_audio': use_local_audio,
                     'testing_mode': testing_mode,
+                    'language_b': language_b,
                     'created_at': datetime.now(),
                     'client_count': 0
                 }
@@ -850,6 +868,7 @@ class SessionManager:
                     'session_id': s['session_id'],
                     'use_local_audio': s['use_local_audio'],
                     'testing_mode': s['testing_mode'],
+                    'language_b': s.get('language_b', Config.LANGUAGE_B),
                     'created_at': s['created_at'].isoformat(),
                     'client_count': s['client_count']
                 }
@@ -865,6 +884,73 @@ class SessionManager:
         """Decrement connected client count for a session"""
         if session_id in self.sessions:
             self.sessions[session_id]['client_count'] = max(0, self.sessions[session_id]['client_count'] - 1)
+
+
+# ============================================================================
+# SSL CERTIFICATE (Self-Signed for Local HTTPS)
+# ============================================================================
+
+def ensure_ssl_cert(cert_file: str = 'cert.pem', key_file: str = 'key.pem'):
+    """
+    Ensure a self-signed SSL certificate exists for HTTPS.
+    Generates one automatically on first run using pyOpenSSL.
+    The cert is valid for 10 years and covers all IP/hostname combinations.
+
+    Returns:
+        Tuple (cert_file, key_file) paths, or (None, None) if pyOpenSSL unavailable.
+    """
+    if os.path.exists(cert_file) and os.path.exists(key_file):
+        logger.info(f"SSL: Using existing cert at '{cert_file}'")
+        return cert_file, key_file
+
+    try:
+        from OpenSSL import crypto
+        import socket as _socket
+
+        logger.info("SSL: Generating new self-signed certificate...")
+
+        # Create key pair
+        k = crypto.PKey()
+        k.generate_key(crypto.TYPE_RSA, 2048)
+
+        # Create self-signed cert
+        cert = crypto.X509()
+        cert.get_subject().CN = _socket.gethostname()
+        cert.set_serial_number(1)
+        cert.gmtime_adj_notBefore(0)
+        cert.gmtime_adj_notAfter(10 * 365 * 24 * 60 * 60)  # 10 years
+        cert.set_issuer(cert.get_subject())
+        cert.set_pubkey(k)
+
+        # Add Subject Alternative Names so the cert matches by IP as well
+        try:
+            local_ip = _socket.gethostbyname(_socket.gethostname())
+        except Exception:
+            local_ip = '127.0.0.1'
+
+        san = f'DNS:localhost,DNS:{_socket.gethostname()},IP:127.0.0.1,IP:{local_ip}'
+        cert.add_extensions([
+            crypto.X509Extension(b'subjectAltName', False, san.encode())
+        ])
+
+        cert.sign(k, 'sha256')
+
+        # Write cert and key to disk
+        with open(cert_file, 'wb') as f:
+            f.write(crypto.dump_certificate(crypto.FILETYPE_PEM, cert))
+        with open(key_file, 'wb') as f:
+            f.write(crypto.dump_privatekey(crypto.FILETYPE_PEM, k))
+
+        logger.info(f"SSL: Self-signed certificate generated (SAN: {san})")
+        return cert_file, key_file
+
+    except ImportError:
+        logger.warning("SSL: pyOpenSSL not installed. Running over plain HTTP.")
+        logger.warning("SSL: Install with: pip install pyOpenSSL")
+        return None, None
+    except Exception as e:
+        logger.error(f"SSL: Failed to generate certificate: {e}")
+        return None, None
 
 
 # ============================================================================
@@ -913,7 +999,18 @@ def personal():
 
 @app.route('/streamer')
 def streamer():
-    """Audio streamer client (browser-based audio input)"""
+    """
+    Audio streamer client (browser-based audio input).
+    Requires HTTPS for microphone access - redirect HTTP requests to HTTPS port.
+    """
+    # If request came over plain HTTP, redirect to the HTTPS port
+    if request.scheme == 'http':
+        https_url = request.url.replace('http://', 'https://', 1)
+        # Replace the HTTP port with the HTTPS port
+        https_url = https_url.replace(
+            f':{Config.PORT}/', f':{Config.PORT_HTTPS}/', 1
+        )
+        return redirect(https_url, code=302)
     return send_from_directory('static', 'audio_streamer.html')
 
 @app.route('/api/sessions', methods=['GET'])
@@ -933,8 +1030,9 @@ def create_session_http(session_id):
     data = request.get_json(silent=True) or {}
     use_local_audio = data.get('use_local_audio', False)
     testing_mode = data.get('testing_mode', Config.TESTING_MODE)
+    language_b = str(data.get('language_b', Config.LANGUAGE_B))
     
-    success = session_manager.create_session(session_id, use_local_audio, testing_mode)
+    success = session_manager.create_session(session_id, use_local_audio, testing_mode, language_b)
     
     return jsonify({
         'success': success,
@@ -953,13 +1051,46 @@ def stop_session_http(session_id):
         'message': f"Session '{session_id}' {'stopped' if success else 'not found'}"
     }), 200 if success else 404
 
+
+@app.route('/api/config', methods=['GET', 'POST'])
+def config_endpoint():
+    """
+    GET: Return current translation language configuration.
+    POST: Update the active translation language_b for new sessions.
+    Body (POST): { "language_b": "fr" }
+    """
+    if request.method == 'POST':
+        data = request.get_json(silent=True) or {}
+        lang = data.get('language_b', '').strip().lower()
+        if lang not in Config.SUPPORTED_LANGUAGES:
+            return jsonify({
+                'success': False,
+                'error': f"Unsupported language '{lang}'. Supported: {Config.SUPPORTED_LANGUAGES}"
+            }), 400
+        Config.LANGUAGE_B = lang
+        logger.info(f"Language B updated to '{lang}'")
+        return jsonify({'success': True, 'language_b': Config.LANGUAGE_B})
+
+    # GET
+    return jsonify({
+        'language_a': Config.LANGUAGE_A,
+        'language_b': Config.LANGUAGE_B,
+        'supported_languages': Config.SUPPORTED_LANGUAGES
+    })
+
 @app.route('/health')
 def health():
     """Health check endpoint"""
+    session_details = {
+        sid: {'client_count': s['client_count']}
+        for sid, s in session_manager.sessions.items()
+    }
     return jsonify({
         'status': 'healthy',
         'active_sessions': len(session_manager.sessions),
         'session_names': list(session_manager.sessions.keys()),
+        'session_details': session_details,
+        'language_b': Config.LANGUAGE_B,
         'testing_mode': Config.TESTING_MODE,
         'soniox_enabled': Config.SONIOX_ENABLED
     })
@@ -1140,28 +1271,61 @@ if __name__ == '__main__':
     logger.info("=" * 70)
     logger.info(f"Testing Mode: {Config.TESTING_MODE}")
     logger.info(f"Soniox Enabled: {Config.SONIOX_ENABLED}")
-    logger.info(f"Host: {Config.HOST}:{Config.PORT}")
+    logger.info(f"HTTP  port: {Config.PORT}  (projector, personal, index)")
+    logger.info(f"HTTPS port: {Config.PORT_HTTPS} (audio streamer - microphone)")
     logger.info("=" * 70)
-    
+
+    # Generate SSL certificate for the HTTPS streamer port
+    ssl_cert, ssl_key = ensure_ssl_cert()
+    if not ssl_cert:
+        logger.warning("pyOpenSSL unavailable - HTTPS port will not start. Streamer may not work on remote devices.")
+
     # Auto-start main session
     if Config.TESTING_MODE or Config.SONIOX_ENABLED:
         start_main_session(duration_minutes=90)
     else:
         logger.warning("Soniox API key not set. Set SONIOX_API_KEY or enable TESTING_MODE=true")
-    
-    # Run the server
+
+    # Run dual-port server:
+    #   HTTP  on Config.PORT      - projector, personal, index (no warnings)
+    #   HTTPS on Config.PORT_HTTPS - audio streamer  (microphone requires secure context)
+    # Both listeners share the same Flask+SocketIO app so sessions and
+    # WebSocket rooms work identically on both ports.
     try:
-        socketio.run(
-            app,
-            host=Config.HOST,
-            port=Config.PORT,
-            debug=Config.DEBUG,
-            allow_unsafe_werkzeug=True,
-            use_reloader=False  # Disable reloader to prevent duplicate sessions
-        )
+        import eventlet
+        import eventlet.wsgi as ewsgi
+
+        # Suppress eventlet's verbose request logging unless DEBUG is on
+        ewsgi_log = logger if Config.DEBUG else None
+
+        # --- HTTP listener (port 5000) ---
+        http_sock = eventlet.listen((Config.HOST, Config.PORT))
+        logger.info(f"HTTP  server listening on http://0.0.0.0:{Config.PORT}")
+
+        def _run_http():
+            ewsgi.server(http_sock, app, log=ewsgi_log, log_output=Config.DEBUG)
+
+        http_greenlet = eventlet.spawn(_run_http)
+
+        # --- HTTPS listener (port 5443) ---
+        if ssl_cert and ssl_key:
+            https_sock = eventlet.wrap_ssl(
+                eventlet.listen((Config.HOST, Config.PORT_HTTPS)),
+                certfile=ssl_cert,
+                keyfile=ssl_key,
+                server_side=True
+            )
+            logger.info(f"HTTPS server listening on https://0.0.0.0:{Config.PORT_HTTPS}")
+            logger.info("NOTE: Remote devices must accept the self-signed cert once in their browser.")
+
+            # Block main thread on HTTPS server (HTTP runs in greenlet above)
+            ewsgi.server(https_sock, app, log=ewsgi_log, log_output=Config.DEBUG)
+        else:
+            # No SSL - just keep HTTP running
+            http_greenlet.wait()
+
     except KeyboardInterrupt:
         logger.info("Shutting down...")
-        # Stop all sessions
         for session_id in list(session_manager.sessions.keys()):
             session_manager.stop_session(session_id)
         logger.info("Server stopped")

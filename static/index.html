@@ -270,12 +270,12 @@
                 </div>
             </a>
 
-            <a href="/streamer" class="card">
+            <a href="#" id="streamer-link" class="card">
                 <div class="card-icon">🎤</div>
                 <div class="card-title">Audio Streamer</div>
                 <div class="card-description">
                     Stream audio from a browser to start new translation sessions for breakout rooms or secondary
-                    meetings.
+                    meetings. <em style="opacity:0.7;font-size:0.85em;">(Requires one-time HTTPS approval)</em>
                 </div>
             </a>
         </div>
@@ -295,6 +295,10 @@
                     <div class="status-value" id="active-sessions">-</div>
                 </div>
                 <div class="status-item">
+                    <div class="status-label">Connected Devices</div>
+                    <div class="status-value" id="connected-devices" style="font-size:1rem; line-height:1.6">-</div>
+                </div>
+                <div class="status-item">
                     <div class="status-label">Testing Mode</div>
                     <div class="status-value" id="testing-mode">-</div>
                 </div>
@@ -306,18 +310,39 @@
             <p style="margin-bottom: 20px; opacity: 0.8;">Manage active translation sessions.</p>
             <div id="session-controls-container">
                 <button id="btn-start-main" class="btn btn-start" onclick="startMainSession()">
-                    <span>▶️</span> Start Main Session
+                    <span>▶️</span> Start Sacrament Meeting
                 </button>
+            </div>
+        </div>
+
+        <div class="controls-section" style="margin-top: 30px;">
+            <h3>🌐 Translation Language</h3>
+            <p style="margin-bottom: 20px; opacity: 0.8;">English is always Language A. Choose the second language for
+                translation.</p>
+            <div style="display: flex; align-items: center; gap: 15px; flex-wrap: wrap; justify-content: center;">
+                <label for="language-b-select" style="font-size: 1rem; font-weight: 600;">Language B:</label>
+                <select id="language-b-select"
+                    style="padding: 10px 18px; font-size: 1rem; border-radius: 8px; border: none; cursor: pointer; min-width: 160px;"
+                    onchange="updateLanguageB(this.value)">
+                    <option value="zh">🇨🇳 Chinese</option>
+                    <option value="fr">🇫🇷 French</option>
+                    <option value="it">🇮🇹 Italian</option>
+                    <option value="ko">🇰🇷 Korean</option>
+                    <option value="pt">🇧🇷 Portuguese</option>
+                    <option value="es" selected>🇪🇸 Spanish</option>
+                    <option value="vi">🇻🇳 Vietnamese</option>
+                </select>
+                <span id="language-b-status" style="font-size: 0.9rem; opacity: 0.8;">Active for new sessions</span>
             </div>
         </div>
 
         <div class="info-box">
             <h3>📖 Quick Start Guide</h3>
             <p>
-                <strong>1. Main Service:</strong> The "main" session auto-starts when the server launches.<br>
+                <strong>1. Sacrament Meeting:</strong> The "main" session auto-starts when the server launches.<br>
                 <strong>2. Connect Displays:</strong> Open projector or personal views on any device on the network.<br>
-                <strong>3. Secondary Meetings:</strong> Use the Audio Streamer to create new sessions (e.g., youth,
-                bible_study).<br>
+                <strong>3. Secondary Meetings:</strong> Use the Audio Streamer to create sessions (e.g., Sunday School,
+                Elders Quorum).<br>
                 <strong>4. Join Sessions:</strong> Each client can select which session to listen to.
             </p>
         </div>
@@ -339,11 +364,28 @@
 
                 document.getElementById('server-status').textContent = data.status === 'healthy' ? 'Online' : 'Offline';
                 if (data.session_names && data.session_names.length > 0) {
-                    document.getElementById('active-sessions').innerHTML = '<span style="font-size: 1.2rem">' + data.session_names.join('<br>') + '</span>';
+                    document.getElementById('active-sessions').innerHTML = '<span style="font-size: 1.2rem">' + data.session_names.map(formatSessionName).join('<br>') + '</span>';
                 } else {
                     document.getElementById('active-sessions').textContent = 'None';
                 }
+
+                // Per-room device counts
+                const details = data.session_details || {};
+                const deviceLines = data.session_names && data.session_names.length > 0
+                    ? data.session_names.map(name => {
+                        const count = (details[name] || {}).client_count || 0;
+                        return `${formatSessionName(name)}: ${count}`;
+                    }).join('<br>')
+                    : 'None';
+                document.getElementById('connected-devices').innerHTML = deviceLines;
+
                 document.getElementById('testing-mode').textContent = data.testing_mode ? 'Yes' : 'No';
+
+                // Sync language_b selector with server state
+                if (data.language_b) {
+                    const sel = document.getElementById('language-b-select');
+                    if (sel) sel.value = data.language_b;
+                }
 
                 updateControls(data.session_names || []);
 
@@ -372,7 +414,7 @@
                 const result = await response.json();
 
                 if (result.success) {
-                    alert('Main session started successfully.');
+                    alert('Sacrament Meeting session started successfully.');
                     checkSystemStatus();
                 } else {
                     alert('Failed to start: ' + result.error);
@@ -382,8 +424,21 @@
                 alert('Error connecting to server.');
             } finally {
                 btn.disabled = false;
-                btn.innerHTML = '<span>▶️</span> Start Main Session';
+                btn.innerHTML = '<span>▶️</span> Start Sacrament Meeting';
             }
+        }
+
+        // Map session IDs to human-readable names
+        const SESSION_NAMES = {
+            'main': 'Sacrament Meeting',
+            'sunday_school': 'Sunday School',
+            'elders_quorum': 'Elders Quorum',
+            'relief_society': 'Relief Society',
+            'youth': 'Youth'
+        };
+
+        function formatSessionName(id) {
+            return SESSION_NAMES[id] || id.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
         }
 
         function updateControls(sessionNames) {
@@ -397,7 +452,7 @@
                 const startBtn = document.createElement('button');
                 startBtn.className = 'btn btn-start';
                 startBtn.id = 'btn-start-main';
-                startBtn.innerHTML = '<span>▶️</span> Start Main Session';
+                startBtn.innerHTML = '<span>▶️</span> Start Sacrament Meeting';
                 startBtn.onclick = startMainSession;
                 container.appendChild(startBtn);
             }
@@ -405,7 +460,7 @@
             sessionNames.forEach(sessionName => {
                 const stopBtn = document.createElement('button');
                 stopBtn.className = 'btn btn-stop';
-                stopBtn.innerHTML = `<span>⏹️</span> Stop ${sessionName}`;
+                stopBtn.innerHTML = `<span>⏹️</span> Stop ${formatSessionName(sessionName)}`;
                 stopBtn.onclick = () => stopSession(sessionName);
                 container.appendChild(stopBtn);
             });
@@ -430,6 +485,35 @@
                 console.error('Error stopping session:', error);
                 alert('Error connecting to server.');
             }
+        }
+
+        async function updateLanguageB(lang) {
+            const statusEl = document.getElementById('language-b-status');
+            statusEl.textContent = 'Saving...';
+            try {
+                const response = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ language_b: lang })
+                });
+                const result = await response.json();
+                if (result.success) {
+                    statusEl.textContent = 'Saved ✓ — applies to new sessions';
+                    setTimeout(() => statusEl.textContent = 'Active for new sessions', 3000);
+                } else {
+                    statusEl.textContent = 'Error: ' + (result.error || 'Unknown');
+                }
+            } catch (e) {
+                statusEl.textContent = 'Error saving';
+            }
+        }
+
+        // Build the Audio Streamer link pointing to the HTTPS port (5443)
+        // so microphone access works on all devices without affecting other pages.
+        const streamerLink = document.getElementById('streamer-link');
+        if (streamerLink) {
+            const httpsUrl = `https://${window.location.hostname}:5443/streamer`;
+            streamerLink.href = httpsUrl;
         }
 
         // Display current server URL
