@@ -468,9 +468,11 @@
             <div class="input-group">
                 <label for="session-select">Session:</label>
                 <select id="session-select">
-                    <option value="main">Main Service</option>
-                    <option value="youth">Youth Meeting</option>
-                    <option value="bible_study">Bible Study</option>
+                    <option value="main">Sacrament Meeting</option>
+                    <option value="sunday_school">Sunday School</option>
+                    <option value="elders_quorum">Elders Quorum</option>
+                    <option value="relief_society">Relief Society</option>
+                    <option value="youth">Youth</option>
                     <option value="custom">Custom Session...</option>
                 </select>
 
@@ -620,11 +622,13 @@
 
         function formatSessionName(sessionId) {
             const names = {
-                'main': 'Main Service',
-                'youth': 'Youth Meeting',
-                'bible_study': 'Bible Study'
+                'main': 'Sacrament Meeting',
+                'sunday_school': 'Sunday School',
+                'elders_quorum': 'Elders Quorum',
+                'relief_society': 'Relief Society',
+                'youth': 'Youth'
             };
-            return names[sessionId] || sessionId.replace(/_/g, ' ').toUpperCase();
+            return names[sessionId] || sessionId.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
         }
 
         // ====================================================================

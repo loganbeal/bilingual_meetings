@@ -337,9 +337,11 @@
         <div class="input-group">
             <label for="session-select">Session:</label>
             <select id="session-select">
-                <option value="main">Main Service</option>
-                <option value="youth">Youth Meeting</option>
-                <option value="bible_study">Bible Study</option>
+                <option value="main">Sacrament Meeting</option>
+                <option value="sunday_school">Sunday School</option>
+                <option value="elders_quorum">Elders Quorum</option>
+                <option value="relief_society">Relief Society</option>
+                <option value="youth">Youth</option>
                 <option value="custom">Custom Session...</option>
             </select>
 
@@ -452,11 +454,13 @@
 
         function formatSessionName(sessionId) {
             const names = {
-                'main': 'Main Service',
-                'youth': 'Youth Meeting',
-                'bible_study': 'Bible Study'
+                'main': 'Sacrament Meeting',
+                'sunday_school': 'Sunday School',
+                'elders_quorum': 'Elders Quorum',
+                'relief_society': 'Relief Society',
+                'youth': 'Youth'
             };
-            return names[sessionId] || sessionId.replace(/_/g, ' ').toUpperCase();
+            return names[sessionId] || sessionId.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
         }
 
         // ====================================================================
@@ -601,33 +605,23 @@
                 }
             }
 
-            // Scroll to bottom (though flex-end naturally does this)
-            // Cancel any existing animation to prevent jumping
-            if (displayElement._scrollAnimationId) {
-                cancelAnimationFrame(displayElement._scrollAnimationId);
+            // Ensure the continuous smooth-scroll loop is running for this element.
+            // The loop runs indefinitely and lazily drifts toward the bottom,
+            // so new text arriving never causes a positional jump.
+            if (!displayElement._scrollLoopActive) {
+                displayElement._scrollLoopActive = true;
+                (function scrollLoop() {
+                    const target = displayElement.scrollHeight - displayElement.clientHeight;
+                    const current = displayElement.scrollTop;
+                    const diff = target - current;
+                    if (diff > 0.5) {
+                        // Move 4% of the remaining gap per frame, capped at 6 px so it
+                        // stays smooth even when a big block of text arrives at once.
+                        displayElement.scrollTop = current + Math.min(diff * 0.04, 6);
+                    }
+                    requestAnimationFrame(scrollLoop);
+                })();
             }
-
-            const startPosition = displayElement.scrollTop;
-            const targetPosition = displayElement.scrollHeight;
-            const duration = 20000; // Slower duration in ms
-            let startTime = null;
-
-            function slowScroll(currentTime) {
-                if (startTime === null) startTime = currentTime;
-                const timeElapsed = currentTime - startTime;
-                const progress = Math.min(timeElapsed / duration, 1);
-
-                // Ease out quadratic function
-                const ease = progress * (2 - progress);
-                displayElement.scrollTop = startPosition + (targetPosition - startPosition) * ease;
-
-                if (timeElapsed < duration) {
-                    displayElement._scrollAnimationId = requestAnimationFrame(slowScroll);
-                } else {
-                    displayElement._scrollAnimationId = null;
-                }
-            }
-            displayElement._scrollAnimationId = requestAnimationFrame(slowScroll);
         }
 
         // ====================================================================
