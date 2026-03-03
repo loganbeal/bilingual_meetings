@@ -8,8 +8,6 @@ Author: Church Translation System
 License: MIT
 """
 
-import eventlet
-eventlet.monkey_patch()
 
 import os
 import sys
@@ -1287,42 +1285,39 @@ if __name__ == '__main__':
         logger.warning("Soniox API key not set. Set SONIOX_API_KEY or enable TESTING_MODE=true")
 
     # Run dual-port server:
-    #   HTTP  on Config.PORT      - projector, personal, index (no warnings)
-    #   HTTPS on Config.PORT_HTTPS - audio streamer  (microphone requires secure context)
+    #   HTTP  on Config.PORT      - projector, personal, index (no HTTPS warning)
+    #   HTTPS on Config.PORT_HTTPS - audio streamer (microphone requires secure context)
     # Both listeners share the same Flask+SocketIO app so sessions and
     # WebSocket rooms work identically on both ports.
+    #
+    # Uses werkzeug's make_server (pure Python, no eventlet required).
+    # HTTP runs in a daemon thread; the main thread blocks on the HTTPS server
+    # (or on HTTP alone when SSL is unavailable).
+    import ssl
+    from werkzeug.serving import make_server
+
     try:
-        import eventlet
-        import eventlet.wsgi as ewsgi
-
-        # Suppress eventlet's verbose request logging unless DEBUG is on
-        ewsgi_log = logger if Config.DEBUG else None
-
-        # --- HTTP listener (port 5000) ---
-        http_sock = eventlet.listen((Config.HOST, Config.PORT))
+        # --- HTTP server (port 5000) ---
+        http_server = make_server(Config.HOST, Config.PORT, app)
         logger.info(f"HTTP  server listening on http://0.0.0.0:{Config.PORT}")
 
-        def _run_http():
-            ewsgi.server(http_sock, app, log=ewsgi_log, log_output=Config.DEBUG)
+        http_thread = threading.Thread(target=http_server.serve_forever, daemon=True)
+        http_thread.start()
 
-        http_greenlet = eventlet.spawn(_run_http)
-
-        # --- HTTPS listener (port 5443) ---
+        # --- HTTPS server (port 5443) ---
         if ssl_cert and ssl_key:
-            https_sock = eventlet.wrap_ssl(
-                eventlet.listen((Config.HOST, Config.PORT_HTTPS)),
-                certfile=ssl_cert,
-                keyfile=ssl_key,
-                server_side=True
-            )
+            ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ssl_ctx.load_cert_chain(certfile=ssl_cert, keyfile=ssl_key)
+
+            https_server = make_server(Config.HOST, Config.PORT_HTTPS, app, ssl_context=ssl_ctx)
             logger.info(f"HTTPS server listening on https://0.0.0.0:{Config.PORT_HTTPS}")
             logger.info("NOTE: Remote devices must accept the self-signed cert once in their browser.")
 
-            # Block main thread on HTTPS server (HTTP runs in greenlet above)
-            ewsgi.server(https_sock, app, log=ewsgi_log, log_output=Config.DEBUG)
+            # Block main thread on HTTPS; HTTP daemon thread keeps running alongside
+            https_server.serve_forever()
         else:
-            # No SSL - just keep HTTP running
-            http_greenlet.wait()
+            # No SSL - block main thread on HTTP server
+            http_thread.join()
 
     except KeyboardInterrupt:
         logger.info("Shutting down...")
