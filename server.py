@@ -442,8 +442,8 @@ class SonioxClient:
                     }
                 }
                 
-                # Connect to WebSocket
-                with connect(SONIOX_WEBSOCKET_URL) as ws:
+                # Connect to WebSocket (with explicit timeouts for stuck network robustness)
+                with connect(SONIOX_WEBSOCKET_URL, open_timeout=10, close_timeout=5) as ws:
                     logger.info(f"[{self.session_id}] Connected to Soniox API")
                     
                     # Send configuration first
@@ -682,11 +682,11 @@ class AudioCapture:
         
         logger.info(f"[{soniox_client.session_id}] AudioCapture initialized")
     
-    def start(self):
+    def start(self) -> bool:
         """Start audio capture"""
         if self.is_active:
             logger.warning(f"[{self.soniox_client.session_id}] Audio capture already active")
-            return
+            return True
         
         self.is_active = True
         self.should_stop.clear()
@@ -704,10 +704,12 @@ class AudioCapture:
             
             self.stream.start_stream()
             logger.info(f"[{self.soniox_client.session_id}] Audio capture started")
+            return True
             
         except Exception as e:
             logger.error(f"[{self.soniox_client.session_id}] Failed to start audio: {e}", exc_info=True)
             self.is_active = False
+            return False
     
     def stop(self):
         """Stop audio capture"""
@@ -814,7 +816,10 @@ class SessionManager:
                 # Setup local audio capture if requested
                 if use_local_audio and not testing_mode:
                     audio_capture = AudioCapture(soniox_client)
-                    audio_capture.start()
+                    if not audio_capture.start():
+                        logger.error(f"Audio capture failed for session '{session_id}'. Aborting creation.")
+                        soniox_client.stop()
+                        return False
                     session['audio_capture'] = audio_capture
                 
                 self.sessions[session_id] = session
@@ -840,19 +845,24 @@ class SessionManager:
                 logger.warning(f"Session '{session_id}' not found")
                 return False
             
-            session = self.sessions[session_id]
+            session = self.sessions.pop(session_id)
             
-            # Stop audio capture if active
-            if session['audio_capture']:
-                session['audio_capture'].stop()
-            
-            # Stop Soniox client
-            session['soniox_client'].stop()
-            
-            # Remove session
-            del self.sessions[session_id]
-            logger.info(f"Session '{session_id}' stopped and removed")
-            return True
+        # Outside the lock, clean up threads so we don't block /health requests for 5 seconds
+        # Stop audio capture if active
+        if session['audio_capture']:
+            session['audio_capture'].stop()
+        
+        # Stop Soniox client
+        session['soniox_client'].stop()
+        
+        # Notify clients that the session has ended
+        try:
+            self.socketio.emit('session_stopped', {'session_id': session_id}, room=session_id)
+        except Exception as e:
+            logger.error(f"Error broadcasting session_stopped: {e}")
+
+        logger.info(f"Session '{session_id}' stopped and removed")
+        return True
     
     def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
         """Get session by ID"""
@@ -1108,6 +1118,13 @@ def handle_connect():
 def handle_disconnect():
     """Client disconnected"""
     logger.info(f"Client disconnected: {request.sid}")
+    try:
+        from flask_socketio import rooms
+        for room in rooms(sid=request.sid):
+            if room != request.sid:  # Default room for each client is their own SID
+                session_manager.decrement_client_count(room)
+    except Exception as e:
+        logger.error(f"Error handling disconnect cleanup: {e}")
 
 @socketio.on('join_session')
 def handle_join_session(data):
