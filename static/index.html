@@ -466,17 +466,17 @@
             });
         }
 
-        async function stopSession(sessionName) {
-            if (!confirm(`Are you sure you want to stop the ${sessionName} translation session?`)) {
+        async function stopSession(sessionId) {
+            const displayName = formatSessionName(sessionId);
+            if (!confirm(`Are you sure you want to stop the "${displayName}" translation session?`)) {
                 return;
             }
 
             try {
-                const response = await fetch(`/api/sessions/${sessionName}`, { method: 'DELETE' });
+                const response = await fetch(`/api/sessions/${sessionId}`, { method: 'DELETE' });
                 const result = await response.json();
 
                 if (result.success) {
-                    alert(`${sessionName} session stopped.`);
                     checkSystemStatus();
                 } else {
                     alert('Failed to stop: ' + (result.error || result.message || 'Unknown error'));
