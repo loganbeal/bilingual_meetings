@@ -8,8 +8,6 @@ Author: Church Translation System
 License: MIT
 """
 
-import eventlet
-eventlet.monkey_patch()
 
 import os
 import sys
@@ -18,7 +16,9 @@ import json
 import queue
 import threading
 import logging
-from datetime import datetime
+import logging.handlers
+import signal
+from datetime import datetime, timedelta
 from typing import Dict, Optional, Any
 from collections import defaultdict
 
@@ -35,14 +35,16 @@ load_dotenv()
 
 # Configure logging. Use DEBUG level only when DEBUG env var is true; otherwise reduce noise.
 log_level = logging.DEBUG if os.getenv('DEBUG', 'false').lower() == 'true' else logging.WARNING
-logging.basicConfig(
-    level=log_level,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler('translation_server.log')
-    ]
+_log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+_rotating_handler = logging.handlers.RotatingFileHandler(
+    'translation_server.log',
+    maxBytes=5 * 1024 * 1024,  # 5 MB per file
+    backupCount=3               # Keep 3 backups = 15 MB max on disk
 )
+_rotating_handler.setFormatter(logging.Formatter(_log_format))
+_stream_handler = logging.StreamHandler(sys.stdout)
+_stream_handler.setFormatter(logging.Formatter(_log_format))
+logging.basicConfig(level=log_level, handlers=[_stream_handler, _rotating_handler])
 logger = logging.getLogger(__name__)
 
 # ============================================================================
@@ -73,6 +75,7 @@ class Config:
     # Session Configuration
     MAX_SESSIONS = 10
     DEFAULT_SESSION_DURATION = 90  # minutes
+    MAX_SESSION_HOURS = 8          # Auto-stop sessions older than this (prevents runaway memory)
 
     # Translation Language Configuration
     # Language A is always English. Language B is configurable.
@@ -118,6 +121,7 @@ class SonioxClient:
         
         # Threading
         self.worker_thread: Optional[threading.Thread] = None
+        self._watchdog_timer: Optional[threading.Timer] = None
         
         # Statistics
         self.bytes_sent = 0
@@ -135,23 +139,65 @@ class SonioxClient:
         self.should_stop.clear()
         
         if self.testing_mode:
-            self.worker_thread = threading.Thread(target=self._testing_worker, daemon=True)
+            self.worker_thread = threading.Thread(
+                target=self._testing_worker, daemon=True,
+                name=f"soniox-test-{self.session_id}")
         else:
-            self.worker_thread = threading.Thread(target=self._soniox_worker, daemon=True)
+            self.worker_thread = threading.Thread(
+                target=self._soniox_worker, daemon=True,
+                name=f"soniox-worker-{self.session_id}")
         
         self.worker_thread.start()
         logger.info(f"[{self.session_id}] Worker thread started")
+        self._schedule_watchdog()
     
     def stop(self):
         """Stop the Soniox client gracefully"""
         logger.info(f"[{self.session_id}] Stopping...")
         self.is_active = False
         self.should_stop.set()
+
+        # Cancel watchdog so it doesn't try to restart us after we stop
+        if self._watchdog_timer:
+            self._watchdog_timer.cancel()
+            self._watchdog_timer = None
         
         if self.worker_thread and self.worker_thread.is_alive():
             self.worker_thread.join(timeout=5)
         
         logger.info(f"[{self.session_id}] Stopped. Stats: {self.bytes_sent} bytes sent, {self.results_received} results received")
+
+    # -----------------------------------------------------------------------
+    # Watchdog — detects dead worker thread and restarts it
+    # -----------------------------------------------------------------------
+    def _schedule_watchdog(self, interval: int = 30):
+        """Schedule a watchdog check after `interval` seconds."""
+        if self.should_stop.is_set():
+            return
+        self._watchdog_timer = threading.Timer(interval, self._watchdog_check)
+        self._watchdog_timer.daemon = True
+        self._watchdog_timer.start()
+
+    def _watchdog_check(self):
+        """Restart the worker thread if it died unexpectedly."""
+        if self.should_stop.is_set():
+            return
+        if self.worker_thread and not self.worker_thread.is_alive():
+            logger.warning(f"[{self.session_id}] Worker thread died unexpectedly — restarting")
+            self._broadcast_error("Translation worker restarting after unexpected failure")
+            # Re-spawn the right worker
+            if self.testing_mode:
+                self.worker_thread = threading.Thread(
+                    target=self._testing_worker, daemon=True,
+                    name=f"soniox-test-{self.session_id}")
+            else:
+                self.worker_thread = threading.Thread(
+                    target=self._soniox_worker, daemon=True,
+                    name=f"soniox-worker-{self.session_id}")
+            self.worker_thread.start()
+            logger.info(f"[{self.session_id}] Worker thread restarted by watchdog")
+        # Re-schedule the next check
+        self._schedule_watchdog()
     
     def add_audio(self, audio_chunk: bytes):
         """
@@ -444,8 +490,8 @@ class SonioxClient:
                     }
                 }
                 
-                # Connect to WebSocket
-                with connect(SONIOX_WEBSOCKET_URL) as ws:
+                # Connect to WebSocket (with explicit timeouts for stuck network robustness)
+                with connect(SONIOX_WEBSOCKET_URL, open_timeout=10, close_timeout=5) as ws:
                     logger.info(f"[{self.session_id}] Connected to Soniox API")
                     
                     # Send configuration first
@@ -684,32 +730,40 @@ class AudioCapture:
         
         logger.info(f"[{soniox_client.session_id}] AudioCapture initialized")
     
-    def start(self):
-        """Start audio capture"""
+    def start(self, retries: int = 2) -> bool:
+        """Start audio capture, retrying up to `retries` times on failure."""
         if self.is_active:
             logger.warning(f"[{self.soniox_client.session_id}] Audio capture already active")
-            return
+            return True
         
         self.is_active = True
         self.should_stop.clear()
         
-        try:
-            # Open audio stream
-            self.stream = self.audio.open(
-                format=Config.AUDIO_FORMAT,
-                channels=Config.AUDIO_CHANNELS,
-                rate=Config.AUDIO_RATE,
-                input=True,
-                frames_per_buffer=Config.AUDIO_CHUNK,
-                stream_callback=self._audio_callback
-            )
-            
-            self.stream.start_stream()
-            logger.info(f"[{self.soniox_client.session_id}] Audio capture started")
-            
-        except Exception as e:
-            logger.error(f"[{self.soniox_client.session_id}] Failed to start audio: {e}", exc_info=True)
-            self.is_active = False
+        for attempt in range(retries):
+            try:
+                # Open audio stream
+                self.stream = self.audio.open(
+                    format=Config.AUDIO_FORMAT,
+                    channels=Config.AUDIO_CHANNELS,
+                    rate=Config.AUDIO_RATE,
+                    input=True,
+                    frames_per_buffer=Config.AUDIO_CHUNK,
+                    stream_callback=self._audio_callback
+                )
+                self.stream.start_stream()
+                logger.info(f"[{self.soniox_client.session_id}] Audio capture started (attempt {attempt + 1})")
+                return True
+            except Exception as e:
+                logger.warning(
+                    f"[{self.soniox_client.session_id}] Audio start attempt {attempt + 1} failed: {e}"
+                )
+                if attempt < retries - 1:
+                    logger.info(f"[{self.soniox_client.session_id}] Retrying audio in 2s...")
+                    time.sleep(2)
+        
+        logger.error(f"[{self.soniox_client.session_id}] All audio start attempts failed")
+        self.is_active = False
+        return False
     
     def stop(self):
         """Stop audio capture"""
@@ -816,7 +870,10 @@ class SessionManager:
                 # Setup local audio capture if requested
                 if use_local_audio and not testing_mode:
                     audio_capture = AudioCapture(soniox_client)
-                    audio_capture.start()
+                    if not audio_capture.start():
+                        logger.error(f"Audio capture failed for session '{session_id}'. Aborting creation.")
+                        soniox_client.stop()
+                        return False
                     session['audio_capture'] = audio_capture
                 
                 self.sessions[session_id] = session
@@ -842,19 +899,24 @@ class SessionManager:
                 logger.warning(f"Session '{session_id}' not found")
                 return False
             
-            session = self.sessions[session_id]
+            session = self.sessions.pop(session_id)
             
-            # Stop audio capture if active
-            if session['audio_capture']:
-                session['audio_capture'].stop()
-            
-            # Stop Soniox client
-            session['soniox_client'].stop()
-            
-            # Remove session
-            del self.sessions[session_id]
-            logger.info(f"Session '{session_id}' stopped and removed")
-            return True
+        # Outside the lock, clean up threads so we don't block /health requests for 5 seconds
+        # Stop audio capture if active
+        if session['audio_capture']:
+            session['audio_capture'].stop()
+        
+        # Stop Soniox client
+        session['soniox_client'].stop()
+        
+        # Notify clients that the session has ended
+        try:
+            self.socketio.emit('session_stopped', {'session_id': session_id}, room=session_id)
+        except Exception as e:
+            logger.error(f"Error broadcasting session_stopped: {e}")
+
+        logger.info(f"Session '{session_id}' stopped and removed")
+        return True
     
     def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
         """Get session by ID"""
@@ -884,6 +946,17 @@ class SessionManager:
         """Decrement connected client count for a session"""
         if session_id in self.sessions:
             self.sessions[session_id]['client_count'] = max(0, self.sessions[session_id]['client_count'] - 1)
+
+    def purge_expired_sessions(self):
+        """Stop any sessions older than MAX_SESSION_HOURS (called by background monitor)."""
+        cutoff = datetime.now() - timedelta(hours=Config.MAX_SESSION_HOURS)
+        expired = [
+            sid for sid, s in list(self.sessions.items())
+            if s['created_at'] < cutoff
+        ]
+        for sid in expired:
+            logger.warning(f"Session '{sid}' exceeded {Config.MAX_SESSION_HOURS}h max age — auto-stopping")
+            self.stop_session(sid)
 
 
 # ============================================================================
@@ -1108,8 +1181,17 @@ def handle_connect():
 
 @socketio.on('disconnect')
 def handle_disconnect():
-    """Client disconnected"""
-    logger.info(f"Client disconnected: {request.sid}")
+    """Client disconnected — clean up room membership and client counts."""
+    sid = request.sid
+    logger.info(f"Client disconnected: {sid}")
+    try:
+        # rooms() returns the rooms this SID was in at disconnect time.
+        # Every client also has a default room equal to its own SID; skip that one.
+        for room in list(socketio.server.rooms(sid, '/')):
+            if room != sid:
+                session_manager.decrement_client_count(room)
+    except Exception as e:
+        logger.error(f"Error handling disconnect cleanup for {sid}: {e}")
 
 @socketio.on('join_session')
 def handle_join_session(data):
@@ -1266,66 +1348,119 @@ def start_main_session(duration_minutes: int = 90):
 # ============================================================================
 
 if __name__ == '__main__':
-    logger.info("=" * 70)
-    logger.info("Church Translation System - Server Starting")
-    logger.info("=" * 70)
-    logger.info(f"Testing Mode: {Config.TESTING_MODE}")
-    logger.info(f"Soniox Enabled: {Config.SONIOX_ENABLED}")
-    logger.info(f"HTTP  port: {Config.PORT}  (projector, personal, index)")
-    logger.info(f"HTTPS port: {Config.PORT_HTTPS} (audio streamer - microphone)")
-    logger.info("=" * 70)
+    logger.warning("=" * 70)
+    logger.warning("Church Translation System - Server Starting")
+    logger.warning("=" * 70)
+    logger.warning(f"Testing Mode: {Config.TESTING_MODE}")
+    logger.warning(f"Soniox Enabled: {Config.SONIOX_ENABLED}")
+    logger.warning(f"HTTP  port: {Config.PORT}  (projector, personal, index)")
+    logger.warning(f"HTTPS port: {Config.PORT_HTTPS} (audio streamer - microphone)")
+    logger.warning(f"Log file: translation_server.log (rotating, 5 MB × 3)")
+    logger.warning("=" * 70)
 
-    # Generate SSL certificate for the HTTPS streamer port
+    # -----------------------------------------------------------------------
+    # Graceful shutdown helper
+    # -----------------------------------------------------------------------
+    def _shutdown(reason: str = "shutdown"):
+        logger.warning(f"Server shutting down ({reason})...")
+        for sid in list(session_manager.sessions.keys()):
+            try:
+                session_manager.stop_session(sid)
+            except Exception as exc:
+                logger.error(f"Error stopping session '{sid}' during {reason}: {exc}")
+        logger.warning("Server stopped")
+
+    # Handle SIGTERM (systemctl stop / kill) gracefully
+    def _handle_sigterm(*_):
+        _shutdown("SIGTERM")
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, _handle_sigterm)
+
+    # -----------------------------------------------------------------------
+    # Background session age monitor — prevents zombie sessions all week
+    # -----------------------------------------------------------------------
+    def _session_age_monitor():
+        while True:
+            time.sleep(300)  # check every 5 minutes
+            try:
+                session_manager.purge_expired_sessions()
+            except Exception as exc:
+                logger.error(f"Session age monitor error: {exc}")
+
+    _monitor_thread = threading.Thread(target=_session_age_monitor, daemon=True, name="session-age-monitor")
+    _monitor_thread.start()
+
+    # -----------------------------------------------------------------------
+    # SSL certificate for HTTPS streamer port
+    # -----------------------------------------------------------------------
     ssl_cert, ssl_key = ensure_ssl_cert()
     if not ssl_cert:
-        logger.warning("pyOpenSSL unavailable - HTTPS port will not start. Streamer may not work on remote devices.")
+        logger.warning("pyOpenSSL unavailable — HTTPS port will not start. Streamer may not work on remote devices.")
 
+    # -----------------------------------------------------------------------
     # Auto-start main session
+    # -----------------------------------------------------------------------
     if Config.TESTING_MODE or Config.SONIOX_ENABLED:
         start_main_session(duration_minutes=90)
     else:
         logger.warning("Soniox API key not set. Set SONIOX_API_KEY or enable TESTING_MODE=true")
 
-    # Run dual-port server:
-    #   HTTP  on Config.PORT      - projector, personal, index (no warnings)
-    #   HTTPS on Config.PORT_HTTPS - audio streamer  (microphone requires secure context)
-    # Both listeners share the same Flask+SocketIO app so sessions and
-    # WebSocket rooms work identically on both ports.
-    try:
-        import eventlet
-        import eventlet.wsgi as ewsgi
+    # -----------------------------------------------------------------------
+    # Dual-port WebSocket-aware server
+    # -----------------------------------------------------------------------
+    # We use socketio.run() (not werkzeug make_server) because only socketio.run()
+    # correctly handles the HTTP→WebSocket Upgrade handshake in threading mode.
+    # plain make_server is a WSGI-only server and silently rejects WebSocket upgrades.
+    #
+    # Strategy:
+    #   • HTTP  (port 5000) — run in a daemon thread via socketio.run()
+    #   • HTTPS (port 5443) — run on the main thread via socketio.run() with ssl_context
+    # Both calls share the same `app` and `socketio` objects, so all rooms/sessions
+    # are visible to clients on either port.
+    # -----------------------------------------------------------------------
 
-        # Suppress eventlet's verbose request logging unless DEBUG is on
-        ewsgi_log = logger if Config.DEBUG else None
+    try:
+        import ssl as _ssl
 
         # --- HTTP listener (port 5000) ---
-        http_sock = eventlet.listen((Config.HOST, Config.PORT))
-        logger.info(f"HTTP  server listening on http://0.0.0.0:{Config.PORT}")
-
         def _run_http():
-            ewsgi.server(http_sock, app, log=ewsgi_log, log_output=Config.DEBUG)
+            logger.warning(f"HTTP server listening on http://0.0.0.0:{Config.PORT}")
+            socketio.run(
+                app,
+                host=Config.HOST,
+                port=Config.PORT,
+                debug=False,
+                use_reloader=False,
+                log_output=Config.DEBUG,
+                allow_unsafe_werkzeug=True,   # allow production use of built-in server
+            )
 
-        http_greenlet = eventlet.spawn(_run_http)
+        http_thread = threading.Thread(target=_run_http, daemon=True, name="http-server")
+        http_thread.start()
 
         # --- HTTPS listener (port 5443) ---
         if ssl_cert and ssl_key:
-            https_sock = eventlet.wrap_ssl(
-                eventlet.listen((Config.HOST, Config.PORT_HTTPS)),
-                certfile=ssl_cert,
-                keyfile=ssl_key,
-                server_side=True
-            )
-            logger.info(f"HTTPS server listening on https://0.0.0.0:{Config.PORT_HTTPS}")
-            logger.info("NOTE: Remote devices must accept the self-signed cert once in their browser.")
+            ssl_ctx = _ssl.SSLContext(_ssl.PROTOCOL_TLS_SERVER)
+            ssl_ctx.load_cert_chain(certfile=ssl_cert, keyfile=ssl_key)
 
-            # Block main thread on HTTPS server (HTTP runs in greenlet above)
-            ewsgi.server(https_sock, app, log=ewsgi_log, log_output=Config.DEBUG)
+            logger.warning(f"HTTPS server listening on https://0.0.0.0:{Config.PORT_HTTPS}")
+            logger.warning("NOTE: Remote devices must accept the self-signed cert once in their browser.")
+
+            # Block main thread here; HTTP runs in daemon thread above.
+            socketio.run(
+                app,
+                host=Config.HOST,
+                port=Config.PORT_HTTPS,
+                debug=False,
+                use_reloader=False,
+                log_output=Config.DEBUG,
+                ssl_context=ssl_ctx,
+                allow_unsafe_werkzeug=True,
+            )
         else:
-            # No SSL - just keep HTTP running
-            http_greenlet.wait()
+            # No SSL — just keep the HTTP thread alive
+            http_thread.join()
 
     except KeyboardInterrupt:
-        logger.info("Shutting down...")
-        for session_id in list(session_manager.sessions.keys()):
-            session_manager.stop_session(session_id)
-        logger.info("Server stopped")
+        _shutdown("KeyboardInterrupt")
