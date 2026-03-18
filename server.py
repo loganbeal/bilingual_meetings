@@ -61,7 +61,7 @@ class Config:
     TESTING_MODE = os.getenv('TESTING_MODE', 'false').lower() == 'true'
     
     # Audio Configuration
-    AUDIO_RATE = 16000  # Soniox requires 16kHz
+    AUDIO_RATE = 48000 # Soniox requires 16kHz
     AUDIO_CHUNK = 1024
     AUDIO_CHANNELS = 1
     AUDIO_FORMAT = pyaudio.paInt16
