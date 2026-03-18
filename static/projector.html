@@ -606,18 +606,30 @@
             }
 
             // Ensure the continuous smooth-scroll loop is running for this element.
-            // The loop runs indefinitely and lazily drifts toward the bottom,
-            // so new text arriving never causes a positional jump.
+            // Uses constant-velocity scrolling driven by elapsed real time so that
+            // content changes (interim text, history pruning) never cause position jumps.
             if (!displayElement._scrollLoopActive) {
                 displayElement._scrollLoopActive = true;
-                (function scrollLoop() {
+                const SCROLL_SPEED = 30; // pixels per second — slow & readable
+                const CATCHUP_THRESHOLD = 200; // px: only accelerate if very far behind
+                let lastTimestamp = null;
+                (function scrollLoop(timestamp) {
+                    if (lastTimestamp === null) lastTimestamp = timestamp;
+                    const delta = Math.min((timestamp - lastTimestamp) / 1000, 0.1); // seconds, capped to avoid huge jumps after tab-sleep
+                    lastTimestamp = timestamp;
+
                     const target = displayElement.scrollHeight - displayElement.clientHeight;
                     const current = displayElement.scrollTop;
                     const diff = target - current;
+
                     if (diff > 0.5) {
-                        // Move 4% of the remaining gap per frame, capped at 6 px so it
-                        // stays smooth even when a big block of text arrives at once.
-                        displayElement.scrollTop = current + Math.min(diff * 0.04, 6);
+                        // Normal: advance by a fixed speed in pixels.
+                        // If we're very far behind (e.g. after a reconnect), scroll a bit faster
+                        // to catch up, but never more than CATCHUP_THRESHOLD px at once.
+                        const step = diff > CATCHUP_THRESHOLD
+                            ? Math.min(diff * 0.1, CATCHUP_THRESHOLD)
+                            : SCROLL_SPEED * delta;
+                        displayElement.scrollTop = Math.min(current + step, target);
                     }
                     requestAnimationFrame(scrollLoop);
                 })();
