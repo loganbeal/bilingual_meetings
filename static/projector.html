@@ -400,7 +400,7 @@
         // Translation history
         let englishTexts = [];
         let spanishTexts = [];
-        const MAX_HISTORY = 20;
+        const MAX_HISTORY = 200;
 
         // ====================================================================
         // UI Elements
@@ -580,10 +580,13 @@
                 // Add to history array
                 historyArray.push(text);
                 if (historyArray.length > MAX_HISTORY) {
-                    historyArray.shift();
-                    // Remove first final item from DOM to match history array
-                    const firstFinal = displayElement.querySelector('.final');
-                    if (firstFinal) firstFinal.remove();
+                    const removeCount = Math.floor(historyArray.length / 2);
+                    historyArray.splice(0, removeCount);
+                    // Remove first half of final items from DOM to match history array
+                    const finalItems = displayElement.querySelectorAll('.final');
+                    for (let i = 0; i < removeCount && i < finalItems.length; i++) {
+                        finalItems[i].remove();
+                    }
                 }
 
                 // Create and append final item

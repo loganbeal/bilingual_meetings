@@ -83,7 +83,7 @@ class Config:
     LANGUAGE_B = os.getenv('LANGUAGE_B', 'es')  # Default: Spanish
 
     # Supported translation languages (Soniox 2-letter codes)
-    SUPPORTED_LANGUAGES = ['zh', 'en', 'fr', 'it', 'ko', 'pt', 'es', 'vi']
+    SUPPORTED_LANGUAGES = ['zh', 'en', 'fr', 'it', 'ko', 'pt', 'es', 'vi','nl']
 
 
 # ============================================================================
